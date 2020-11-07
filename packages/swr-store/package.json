@@ -37,5 +37,19 @@
     "test": "pridepack test --passWithNoTests",
     "clean": "pridepack clean",
     "watch": "pridepack watch"
-  }
+  },
+  "description": "SWR stores for data-fetching",
+  "repository": {
+    "url": "https://github.com/lxsmnsyc/swr-store.git",
+    "type": "git"
+  },
+  "homepage": "https://github.com/lxsmnsyc/swr-store",
+  "bugs": {
+    "url": "https://github.com/lxsmnsyc/swr-store/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "Alexis Munsayac",
+  "private": false
 }

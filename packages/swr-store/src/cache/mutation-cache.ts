@@ -23,31 +23,44 @@ export type MutationResult<T> =
   | MutationSuccess<T>
   | MutationFailure;
 
-export const MUTATION_CACHE = createReactiveCache<MutationResult<any>>();
+export interface Mutation<T> {
+  result: MutationResult<T>;
+  timestamp: number;
+}
 
-export type MutationListener<T> = ReactiveCacheListener<MutationResult<T>>;
+export const MUTATION_CACHE = createReactiveCache<Mutation<any>>();
+
+export type MutationListener<T> = ReactiveCacheListener<Mutation<T>>;
 
 export function addMutationListener<T>(
+  key: string,
   listener: MutationListener<T>,
 ): void {
-  addReactiveCacheListener(MUTATION_CACHE, listener);
+  addReactiveCacheListener(MUTATION_CACHE, key, listener);
 }
 
 export function removeMutationListener<T>(
+  key: string,
   listener: MutationListener<T>,
 ): void {
-  removeReactiveCacheListener(MUTATION_CACHE, listener);
+  removeReactiveCacheListener(MUTATION_CACHE, key, listener);
 }
 
 export function setMutation<T>(
   key: string,
-  value: MutationResult<T>,
+  value: Mutation<T>,
 ): void {
   setReactiveCacheValue(MUTATION_CACHE, key, value);
 }
 
 export function getMutation<T>(
   key: string,
-): MutationResult<T> | undefined {
-  return MUTATION_CACHE.cache.get(key);
+): Mutation<T> | undefined {
+  return MUTATION_CACHE.cache.get(key)?.value;
+}
+
+export function getMutationListenerSize(
+  key: string,
+): number {
+  return MUTATION_CACHE.cache.get(key)?.listeners.size ?? 0;
 }
