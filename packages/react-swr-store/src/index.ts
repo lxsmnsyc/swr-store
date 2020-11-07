@@ -1,4 +1,3 @@
-import Hello from './Hello';
+import useSWRStore from './use-swr-store';
 
-export { HelloProps } from './Hello';
-export default Hello;
+export default useSWRStore;
