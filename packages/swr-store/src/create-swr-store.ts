@@ -8,6 +8,7 @@ import {
   removeMutationListener,
   setMutation,
 } from './cache/mutation-cache';
+import { addRevalidationListener, removeRevalidationListener, setRevalidation } from './cache/revalidation-cache';
 import {
   mutate,
   trigger,
@@ -223,6 +224,18 @@ export default function createSWRStore<T, P extends any[] = []>(
       const onRevalidate = () => {
         revalidate(...args);
       };
+      subscription(() => {
+        setRevalidation(generatedKey, true);
+        const innerRevalidate = (flag: boolean) => {
+          if (flag) {
+            revalidate(...args);
+          }
+        };
+        addRevalidationListener(generatedKey, innerRevalidate);
+        return () => {
+          removeRevalidationListener(generatedKey, innerRevalidate);
+        };
+      });
       // Register polling interval
       if (fullOpts.refreshInterval != null) {
         if (fullOpts.refreshWhenBlurred) {
