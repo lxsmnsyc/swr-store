@@ -1,6 +1,7 @@
 import {
   addReactiveCacheListener,
   createReactiveCache,
+  getReactiveCacheListenerSize,
   ReactiveCacheListener,
   removeReactiveCacheListener,
   setReactiveCacheValue,
@@ -62,5 +63,5 @@ export function getMutation<T>(
 export function getMutationListenerSize(
   key: string,
 ): number {
-  return MUTATION_CACHE.cache.get(key)?.listeners.size ?? 0;
+  return getReactiveCacheListenerSize(MUTATION_CACHE, key);
 }
