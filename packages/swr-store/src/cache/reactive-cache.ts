@@ -1,16 +1,17 @@
 export type ReactiveCacheListener<T> = (value: T) => void;
 export interface ReactiveCacheRef<T> {
   value: T;
-  listeners: Set<ReactiveCacheListener<T>>;
 }
 
 export interface ReactiveCache<T> {
   cache: Map<string, ReactiveCacheRef<T>>;
+  subscribers: Map<string, Set<ReactiveCacheListener<T>>>;
 }
 
 export function createReactiveCache<T>(): ReactiveCache<T> {
   return {
-    cache: new Map<string, ReactiveCacheRef<T>>(),
+    cache: new Map(),
+    subscribers: new Map(),
   };
 }
 
@@ -25,7 +26,6 @@ export function createReactiveCacheRef<T>(
   }
   const newRef: ReactiveCacheRef<T> = {
     value,
-    listeners: new Set(),
   };
   cache.cache.set(key, newRef);
   return newRef;
@@ -36,10 +36,12 @@ export function addReactiveCacheListener<T>(
   key: string,
   listener: ReactiveCacheListener<T>,
 ): void {
-  const currentRef = cache.cache.get(key);
-  if (currentRef) {
-    currentRef.listeners.add(listener);
+  let subscribers = cache.subscribers.get(key);
+  if (!subscribers) {
+    subscribers = new Set();
+    cache.subscribers.set(key, subscribers);
   }
+  subscribers.add(listener);
 }
 
 export function removeReactiveCacheListener<T>(
@@ -47,9 +49,9 @@ export function removeReactiveCacheListener<T>(
   key: string,
   listener: ReactiveCacheListener<T>,
 ): void {
-  const currentRef = cache.cache.get(key);
-  if (currentRef) {
-    currentRef.listeners.delete(listener);
+  const subscribers = cache.subscribers.get(key);
+  if (subscribers) {
+    subscribers.delete(listener);
   }
 }
 
@@ -63,7 +65,12 @@ export function setReactiveCacheValue<T>(
   currentRef.value = value;
 
   if (notify) {
-    currentRef.listeners.forEach((listener) => {
+    let subscribers = cache.subscribers.get(key);
+    if (!subscribers) {
+      subscribers = new Set();
+      cache.subscribers.set(key, subscribers);
+    }
+    subscribers.forEach((listener) => {
       listener(value);
     });
   }
@@ -73,5 +80,5 @@ export function getReactiveCacheListenerSize<T>(
   cache: ReactiveCache<T>,
   key: string,
 ): number {
-  return cache.cache.get(key)?.listeners.size ?? 0;
+  return cache.subscribers.get(key)?.size ?? 0;
 }
