@@ -54,6 +54,9 @@ export default function App(): JSX.Element {
           Image above will automatically update when the page
           gets re-focused or network goes back online.
         </p>
+        <p>
+          Image response has a fresh age of 2 seconds and a stale age of 30 seconds.
+        </p>
       </div>
     </>
   );

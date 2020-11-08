@@ -163,8 +163,11 @@ trigger(`/user/${userId}`);
 
 // Or mutate
 mutate(`/user/${userId}`, {
-  name: 'John Doe',
-  age: 16,
+  data: {
+    name: 'John Doe',
+    age: 16,
+  },
+  status: 'success',
 });
 ```
 
@@ -219,7 +222,7 @@ SWR stores can define how 'fresh' or 'stale' the cache is, which can alter the r
 - If the cache is 'stale', revalidation phases goes through, but the result does not return to `'pending'` state.
 
 These behavior can be defined through the following options:
-- `options.freshAge`: Defines how long the cache stays 'fresh', in milliseconds. Defaults to `0`.
+- `options.freshAge`: Defines how long the cache stays 'fresh', in milliseconds. Defaults to `2000`. (2 seconds).
 - `options.staleAge`: Defines how long the cache stays 'stale' after becoming 'fresh', in milliseconds. Defaults to `30000` (30 seconds).
 
 A cache is 'fresh' when the time between the cache was updated and was read is between the `options.freshAge` value, otherwise, the cache automatically becomes 'stale'.

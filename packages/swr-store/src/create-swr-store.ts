@@ -87,7 +87,7 @@ export default function createSWRStore<T, P extends any[] = []>(
     refreshWhenHidden: false,
     refreshWhenBlurred: false,
     refreshWhenOffline: false,
-    freshAge: 0,
+    freshAge: 2000,
     staleAge: 30000,
     key: defaultKey,
   };
@@ -394,15 +394,7 @@ export default function createSWRStore<T, P extends any[] = []>(
       const generatedKey = fullOpts.key(...args);
       mutate(generatedKey, data, shouldRevalidate);
     },
-    get: (...args) => {
-      const generatedKey = fullOpts.key(...args);
-      const currentMutation = getMutation<T>(generatedKey);
-
-      if (currentMutation) {
-        return currentMutation.result;
-      }
-      return revalidate(...args);
-    },
+    get: revalidate,
     subscribe: (args, listener) => {
       const generatedKey = fullOpts.key(...args);
 
