@@ -43,10 +43,17 @@ export default function App(): JSX.Element {
   return (
     <>
       <Trigger />
+      <p>
+        Pressing the Trigger button revalidates the image below.
+      </p>
       <div>
         <Suspense fallback={<h1>Loading...</h1>}>
           <DogImage />
         </Suspense>
+        <p>
+          Image above will automatically update when the page
+          gets re-focused or network goes back online.
+        </p>
       </div>
     </>
   );
