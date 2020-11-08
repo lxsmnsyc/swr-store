@@ -25,14 +25,16 @@ export type SWRTrigger<P extends any[] = []> =
 export type SWRMutate<T, P extends any[] = []> =
   (args: P, data: MutationResult<T>, shouldRevalidate?: boolean) => void;
 
+export interface SWRGetOptions<T> {
+  shouldRevalidate?: boolean;
+  initialData?: T;
+}
+
 export type SWRGet<T, P extends any[] = []> =
-  (...args: P) => MutationResult<T>;
+  (args: P, options?: SWRGetOptions<T>) => MutationResult<T>;
 
 export type SWRSubscribe<T, P extends any[] = []> =
   (args: P, listener: MutationListener<T>) => () => void;
-
-export type SWRVariantEffect<P extends any[] = []> =
-  (...args: P) => void;
 
 export interface SWRStoreBaseOptions<T, P extends any[] = []> {
   get: (...args: P) => Promise<T>;
@@ -98,7 +100,15 @@ export default function createSWRStore<T, P extends any[] = []>(
 
   // This function revalidates the mutation cache
   // through reactive process
-  const revalidate: SWRGet<T, P> = (...args) => {
+  const revalidate: SWRGet<T, P> = (args, options) => {
+    const defaultRevalidateOptions: SWRGetOptions<T> = {
+      shouldRevalidate: true,
+      initialData: fullOpts.initialData,
+    };
+    const revalidateOptions: SWRGetOptions<T> = {
+      ...defaultRevalidateOptions,
+      ...options,
+    };
     // Parse key
     const generatedKey = fullOpts.key(...args);
 
@@ -109,10 +119,10 @@ export default function createSWRStore<T, P extends any[] = []>(
     let currentMutation = getMutation<T>(generatedKey);
 
     // Hydrate mutation
-    if (!currentMutation && fullOpts.initialData) {
+    if (!currentMutation && revalidateOptions.initialData) {
       currentMutation = {
         result: {
-          data: fullOpts.initialData,
+          data: revalidateOptions.initialData,
           status: 'success',
         },
         timestamp,
@@ -132,12 +142,18 @@ export default function createSWRStore<T, P extends any[] = []>(
       };
     }
 
-    // Check freshness of mutation
-    if (currentMutation && currentMutation.timestamp + fullOpts.freshAge > timestamp) {
+    if (currentMutation) {
+      if (!revalidateOptions.shouldRevalidate) {
+        return {
+          ...currentMutation.result,
+        };
+      }
       // If mutation is still fresh, return mutation
-      return {
-        ...currentMutation.result,
-      };
+      if (currentMutation.timestamp + fullOpts.freshAge > timestamp) {
+        return {
+          ...currentMutation.result,
+        };
+      }
     }
 
     // Perform fetch
@@ -234,12 +250,10 @@ export default function createSWRStore<T, P extends any[] = []>(
       setRevalidation(generatedKey, true);
     };
     subscription(() => {
-      setRevalidation(generatedKey, true);
       const innerRevalidate = (flag: boolean) => {
-        if (flag) {
-          setRevalidation(generatedKey, false, false);
-          revalidate(...args);
-        }
+        revalidate(args, {
+          shouldRevalidate: flag,
+        });
       };
       addRevalidationListener(generatedKey, innerRevalidate);
       return () => {

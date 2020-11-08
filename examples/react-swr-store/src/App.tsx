@@ -21,7 +21,9 @@ const dogAPI = createSWRStore<APIResult, [string]>({
 });
 
 function DogImage(): JSX.Element {
-  const data = useSWRStore(dogAPI, ['shiba'], true);
+  const data = useSWRStore(dogAPI, ['shiba'], {
+    suspense: true,
+  });
 
   return <img src={data.message} alt={data.message} />;
 }
