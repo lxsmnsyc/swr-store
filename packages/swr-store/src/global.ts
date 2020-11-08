@@ -1,5 +1,8 @@
 import {
+  addMutationListener,
+  MutationListener,
   MutationResult,
+  removeMutationListener,
   setMutation,
 } from './cache/mutation-cache';
 import {
@@ -19,8 +22,25 @@ export function mutate<T>(
   shouldRevalidate = true,
 ): void {
   setMutation(key, {
-    result: data,
+    result: {
+      ...data,
+    },
     timestamp: Date.now(),
   });
   setRevalidation(key, shouldRevalidate);
+}
+
+export function subscribe<T>(
+  key: string,
+  listener: MutationListener<T>,
+): () => void {
+  const wrappedListener: MutationListener<T> = (value) => {
+    listener({
+      ...value,
+    });
+  };
+  addMutationListener(key, wrappedListener);
+  return () => {
+    removeMutationListener(key, wrappedListener);
+  };
 }
