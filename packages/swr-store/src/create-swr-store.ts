@@ -1,16 +1,15 @@
 import {
-  addMutationListener,
   getMutation,
   getMutationListenerSize,
   MutationListener,
   MutationPending,
   MutationResult,
-  removeMutationListener,
   setMutation,
 } from './cache/mutation-cache';
 import { addRevalidationListener, removeRevalidationListener, setRevalidation } from './cache/revalidation-cache';
 import {
   mutate,
+  subscribe,
   trigger,
 } from './global';
 import IS_CLIENT from './is-client';
@@ -124,13 +123,17 @@ export default function createSWRStore<T, P extends any[] = []>(
       if (!currentMutation) {
         throw new NoServerFetchError();
       }
-      return currentMutation.result;
+      return {
+        ...currentMutation.result,
+      };
     }
 
     // Check freshness of mutation
     if (currentMutation && currentMutation.timestamp + fullOpts.freshAge > timestamp) {
       // If mutation is still fresh, return mutation
-      return currentMutation.result;
+      return {
+        ...currentMutation.result,
+      };
     }
 
     // Perform fetch
@@ -181,7 +184,9 @@ export default function createSWRStore<T, P extends any[] = []>(
       // Updating this means that the freshness or the staleness
       // of a mutation resets
       currentMutation.timestamp = timestamp;
-      return currentMutation.result;
+      return {
+        ...currentMutation.result,
+      };
     }
 
     // Otherwise, set the new mutation
@@ -190,7 +195,9 @@ export default function createSWRStore<T, P extends any[] = []>(
       timestamp,
     });
 
-    return result;
+    return {
+      ...result,
+    };
   };
 
   type Cleanup = () => void;
@@ -215,27 +222,28 @@ export default function createSWRStore<T, P extends any[] = []>(
     // Create cleanup stack
     const currentCleanups: Cleanups = [];
 
-    const subscription = (subscribe: Subscribe) => {
-      currentCleanups.push(subscribe());
+    const subscription = (sub: Subscribe) => {
+      currentCleanups.push(sub());
     };
+
+    const onRevalidate = () => {
+      revalidate(...args);
+    };
+    subscription(() => {
+      setRevalidation(generatedKey, true);
+      const innerRevalidate = (flag: boolean) => {
+        if (flag) {
+          revalidate(...args);
+        }
+      };
+      addRevalidationListener(generatedKey, innerRevalidate);
+      return () => {
+        removeRevalidationListener(generatedKey, innerRevalidate);
+      };
+    });
 
     // Only register on client-side
     if (IS_CLIENT) {
-      const onRevalidate = () => {
-        revalidate(...args);
-      };
-      subscription(() => {
-        setRevalidation(generatedKey, true);
-        const innerRevalidate = (flag: boolean) => {
-          if (flag) {
-            revalidate(...args);
-          }
-        };
-        addRevalidationListener(generatedKey, innerRevalidate);
-        return () => {
-          removeRevalidationListener(generatedKey, innerRevalidate);
-        };
-      });
       // Register polling interval
       if (fullOpts.refreshInterval != null) {
         if (fullOpts.refreshWhenBlurred) {
@@ -297,10 +305,10 @@ export default function createSWRStore<T, P extends any[] = []>(
               }
             };
 
-            window.addEventListener('visibilitychange', onVisibility, false);
+            document.addEventListener('visibilitychange', onVisibility, false);
 
             return () => {
-              window.removeEventListener('visibilitychange', onVisibility, false);
+              document.removeEventListener('visibilitychange', onVisibility, false);
               clearInterval(interval);
             };
           });
@@ -381,26 +389,16 @@ export default function createSWRStore<T, P extends any[] = []>(
       const generatedKey = fullOpts.key(...args);
       mutate(generatedKey, data, shouldRevalidate);
     },
-    get: (...args) => {
-      const generatedKey = fullOpts.key(...args);
-      const currentMutation = getMutation<T>(generatedKey);
-      if (currentMutation) {
-        return currentMutation.result;
-      }
-      return revalidate(...args);
-    },
+    get: revalidate,
     subscribe: (args, listener) => {
       const generatedKey = fullOpts.key(...args);
 
       // Setup lazy global registration
       lazyRegister(...args);
 
-      // Attach a listener
-      addMutationListener(generatedKey, listener);
-
+      const unsubscribe = subscribe(generatedKey, listener);
       return () => {
-        // Remove a listener
-        removeMutationListener(generatedKey, listener);
+        unsubscribe();
 
         // Attempt lazy unregistration
         lazyUnregister(generatedKey);
