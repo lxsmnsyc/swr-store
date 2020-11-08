@@ -6,7 +6,11 @@ import {
   MutationResult,
   setMutation,
 } from './cache/mutation-cache';
-import { addRevalidationListener, removeRevalidationListener, setRevalidation } from './cache/revalidation-cache';
+import {
+  addRevalidationListener,
+  removeRevalidationListener,
+  setRevalidation,
+} from './cache/revalidation-cache';
 import {
   mutate,
   subscribe,
@@ -227,12 +231,13 @@ export default function createSWRStore<T, P extends any[] = []>(
     };
 
     const onRevalidate = () => {
-      revalidate(...args);
+      setRevalidation(generatedKey, true);
     };
     subscription(() => {
       setRevalidation(generatedKey, true);
       const innerRevalidate = (flag: boolean) => {
         if (flag) {
+          setRevalidation(generatedKey, false, false);
           revalidate(...args);
         }
       };
@@ -389,7 +394,15 @@ export default function createSWRStore<T, P extends any[] = []>(
       const generatedKey = fullOpts.key(...args);
       mutate(generatedKey, data, shouldRevalidate);
     },
-    get: revalidate,
+    get: (...args) => {
+      const generatedKey = fullOpts.key(...args);
+      const currentMutation = getMutation<T>(generatedKey);
+
+      if (currentMutation) {
+        return currentMutation.result;
+      }
+      return revalidate(...args);
+    },
     subscribe: (args, listener) => {
       const generatedKey = fullOpts.key(...args);
 
