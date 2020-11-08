@@ -40,7 +40,9 @@ const dogAPI = createSWRStore<APIResult, [string]>({
 });
 
 function DogImage(): JSX.Element {
-  const data = useSWRStore(dogAPI, ['shiba'], true);
+  const data = useSWRStore(dogAPI, ['shiba'], {
+    suspense: true,
+  });
 
   return <img src={data.message} alt={data.message} />;
 }
@@ -74,11 +76,14 @@ export default function App(): JSX.Element {
 
 ## API
 
-### `useSWRStore(store, args, suspense = false)`
+### `useSWRStore(store, args, options)`
 
 Subscribes to an SWR store, passing `args`, which are received by the corresponding store for data-fetching and cache updates.
 
-If `suspense` is true, `useSWRStore` suspends the component until the result state is `'success'`, returning the resolved data. Otherwise, `useSWRStore` returns the result directly.
+`options` has the following properties:
+- `suspense`: When `true`, suspends the component when receiving the result, if the result status is `'pending'` until the result resolves,where `useSWRStore` returns the resolved data. Otherwise, `useSWRStore` returns the result. Defaults to `false`.
+- `initialData`: Allows lazy hydration when reading the store. If the store does not have cache, `initialData` hydrates the cache and attempts a revalidation. If no `initialData` is provided, defaults to store's `options.initialData`.
+- `shouldRevalidate`: If `true`, goes through the revalidation process when reading through the cache. Defaults to `true`.
 
 ## License
 

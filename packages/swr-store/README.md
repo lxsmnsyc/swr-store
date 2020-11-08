@@ -37,7 +37,7 @@ const dogAPI = createSWRStore<APIResult, [string]>({
 // Will be pending initially.
 // The result will change once dogAPI.get is called again
 // sometime after the fetch has assumed to be resolved.
-const result = dogAPI.get('shiba');
+const result = dogAPI.get(['shiba']);
 
 if (result.status === 'pending') {
   displaySkeleton();
@@ -125,18 +125,36 @@ const userDetails = createSWRStore({
 
 Stores can also be hydrated manually through `mutate`.
 
+Calling `store.get` also allows lazy hydration, in which the provided initial data is preferred rather than `options.initialData`.
+
+```ts
+const result = userDetails.get([userId], {
+  // If there's no cache, prefetched data is used
+  // then attempts revalidation
+  initialData: prefetchedData,
+});
+```
+
 ### Lazy Revalidation
 
 SWR stores are lazily revalidated whenever `store.get` is called.
 
 ```ts
 // Initial fetch
-const result = store.get();
+const result = store.get([]);
 
 setTimeout(() => {
   // May contain the resolved result
   // or a new one if the cache has been invalidated.
-  const newResult = store.get();
+  const newResult = store.get([]);
+});
+```
+
+Revalidation on `get` may be opt-out by providing `shouldRevalidate`:
+
+```ts
+const result = store.get([], {
+  shouldRevalidate: false,
 });
 ```
 
