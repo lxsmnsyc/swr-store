@@ -1,6 +1,6 @@
 {
   "name": "react-swr-store-vite",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -12,7 +12,7 @@
     "react": "npm:@pika/react",
     "react-dom": "npm:@pika/react-dom",
     "react-swr-store": "0.3.0",
-    "swr-store": "0.3.0"
+    "swr-store": "0.3.1"
   },
   "devDependencies": {
     "@types/react": "^16.9.55",
