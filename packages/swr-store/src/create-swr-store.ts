@@ -100,14 +100,14 @@ export default function createSWRStore<T, P extends any[] = []>(
 
   // This function revalidates the mutation cache
   // through reactive process
-  const revalidate: SWRGet<T, P> = (args, options) => {
+  const revalidate: SWRGet<T, P> = (args, opts) => {
     const defaultRevalidateOptions: SWRGetOptions<T> = {
       shouldRevalidate: true,
       initialData: fullOpts.initialData,
     };
     const revalidateOptions: SWRGetOptions<T> = {
       ...defaultRevalidateOptions,
-      ...options,
+      ...opts,
     };
     // Parse key
     const generatedKey = fullOpts.key(...args);
