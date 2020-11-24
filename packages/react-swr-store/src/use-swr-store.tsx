@@ -1,8 +1,27 @@
 import { useDebugValue } from 'react';
 import { SWRStore, MutationResult } from 'swr-store';
-import { compareArray } from './hooks/useFreshLazyRef';
-import useMemoCondition from './hooks/useMemoCondition';
-import useSubscription, { Subscription } from './hooks/useSubscription';
+import {
+  useMemoCondition,
+  useSubscription,
+  Subscription,
+} from '@lyonph/react-hooks';
+
+function compareArray<T extends any[] = []>(
+  prev: T, next: T,
+): boolean {
+  if (prev === next) {
+    return false;
+  }
+  if (prev.length !== next.length) {
+    return true;
+  }
+  for (let i = 0; i < prev.length; i += 1) {
+    if (!Object.is(prev[i], next[i])) {
+      return true;
+    }
+  }
+  return false;
+}
 
 interface BaseOptions<T> {
   initialData?: T;
