@@ -1,3 +1,4 @@
+import { dequal } from 'dequal/lite';
 import {
   getMutation,
   getMutationListenerSize,
@@ -17,13 +18,15 @@ import {
   trigger,
 } from './global';
 import IS_CLIENT from './is-client';
-import NoServerFetchError from './no-server-fetch-error';
+import NEVER_PROMISE from './never-promise';
+
+export type SWRCompare<T> = (a: T, b: T) => boolean;
 
 export type SWRTrigger<P extends any[] = []> =
   (args: P, shouldRevalidate?: boolean) => void;
 
 export type SWRMutate<T, P extends any[] = []> =
-  (args: P, data: MutationResult<T>, shouldRevalidate?: boolean) => void;
+  (args: P, data: MutationResult<T>, shouldRevalidate?: boolean, compare?: SWRCompare<T>) => void;
 
 export interface SWRGetOptions<T> {
   shouldRevalidate?: boolean;
@@ -42,7 +45,7 @@ export interface SWRStoreBaseOptions<T, P extends any[] = []> {
   refreshInterval?: number;
 }
 
-export interface SWRStoreExtendedOptions<P extends any[] = []> {
+export interface SWRStoreExtendedOptions<T, P extends any[] = []> {
   key: (...args: P) => string;
 
   revalidateOnFocus: boolean;
@@ -55,17 +58,19 @@ export interface SWRStoreExtendedOptions<P extends any[] = []> {
 
   freshAge: number;
   staleAge: number;
+
+  compare: SWRCompare<T>;
 }
 
-export type SWRStorePartialOptions<P extends any[] = []> =
-  Partial<SWRStoreExtendedOptions<P>>;
+export type SWRStorePartialOptions<T, P extends any[] = []> =
+  Partial<SWRStoreExtendedOptions<T, P>>;
 
 export interface SWRStoreOptions<T, P extends any[] = []>
-  extends SWRStorePartialOptions<P>, SWRStoreBaseOptions<T, P> {
+  extends SWRStorePartialOptions<T, P>, SWRStoreBaseOptions<T, P> {
 }
 
 export interface SWRFullOptions<T, P extends any[] = []>
-  extends SWRStoreExtendedOptions<P>, SWRStoreBaseOptions<T, P> {
+  extends SWRStoreExtendedOptions<T, P>, SWRStoreBaseOptions<T, P> {
 }
 
 export interface SWRStore<T, P extends any[] = []> {
@@ -82,7 +87,7 @@ function defaultKey<P extends any[] = []>(...args: P): string {
 export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
 ): SWRStore<T, P> {
-  const defaultOpts: SWRStoreExtendedOptions<P> = {
+  const defaultOpts: SWRStoreExtendedOptions<T, P> = {
     revalidateOnFocus: false,
     revalidateOnNetwork: false,
     revalidateOnVisibility: false,
@@ -92,6 +97,7 @@ export default function createSWRStore<T, P extends any[] = []>(
     freshAge: 2000,
     staleAge: 30000,
     key: defaultKey,
+    compare: dequal,
   };
   const fullOpts: SWRFullOptions<T, P> = {
     ...defaultOpts,
@@ -135,7 +141,10 @@ export default function createSWRStore<T, P extends any[] = []>(
     if (!IS_CLIENT) {
       // If there is no mutation, throw an error
       if (!currentMutation) {
-        throw new NoServerFetchError();
+        return {
+          status: 'pending',
+          data: NEVER_PROMISE as Promise<T>,
+        };
       }
       return {
         ...currentMutation.result,
@@ -169,26 +178,67 @@ export default function createSWRStore<T, P extends any[] = []>(
     // to update cache data
     pendingData.then(
       (data) => {
-        const current = getMutation(generatedKey)?.timestamp;
-        if (current && current <= timestamp) {
+        const mutation = getMutation<T>(generatedKey);
+
+        const shouldUpdate = (): boolean => {
+          // Case 1: There's no mutation
+          if (mutation == null) {
+            return true;
+          }
+
+          // Case 2: Timestamp expired
+          if (mutation.timestamp > timestamp) {
+            return false;
+          }
+
+          // Case 3: There's a stale data
+          if (mutation.result.status === 'success') {
+            // Deep compare stale data
+            return !fullOpts.compare(
+              mutation.result.data,
+              data,
+            );
+          }
+
+          // Always update
+          return true;
+        };
+
+        if (shouldUpdate()) {
           setMutation(generatedKey, {
             result: {
               data,
               status: 'success',
             },
-            timestamp: current,
+            timestamp: mutation?.timestamp ?? Date.now(),
           });
         }
       },
       (data) => {
-        const current = getMutation(generatedKey)?.timestamp;
-        if (current && current <= timestamp) {
+        const mutation = getMutation<T>(generatedKey);
+
+        const shouldUpdate = (): boolean => {
+          // Case 1: There's no mutation
+          if (mutation == null) {
+            return true;
+          }
+
+          // Case 2: Timestamp expired
+          if (mutation.timestamp > timestamp) {
+            return false;
+          }
+
+          // Always update
+          return true;
+        };
+
+        if (shouldUpdate()) {
           setMutation(generatedKey, {
             result: {
               data,
               status: 'failure',
             },
-            timestamp: current,
+            timestamp: mutation?.timestamp ?? Date.now(),
           });
         }
       },
@@ -404,9 +454,9 @@ export default function createSWRStore<T, P extends any[] = []>(
       const generatedKey = fullOpts.key(...args);
       trigger(generatedKey, shouldRevalidate);
     },
-    mutate: (args, data, shouldRevalidate = true) => {
+    mutate: (args, data, shouldRevalidate = true, compare = fullOpts.compare) => {
       const generatedKey = fullOpts.key(...args);
-      mutate(generatedKey, data, shouldRevalidate);
+      mutate(generatedKey, data, shouldRevalidate, compare);
     },
     get: revalidate,
     subscribe: (args, listener) => {
