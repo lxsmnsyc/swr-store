@@ -254,7 +254,13 @@ SWR Stores throttles data fetching processes through the caching strategy. Cache
 
 ### CSR-Only Revalidation and Fetching
 
-SWR stores' cache revalidation and data-fetching only happens on client-side. Attempts to fetch on server-side throws an error. It is recommeded to hydrate the store first (either through `mutate` or `options.initialData`) to prevent such behavior.
+SWR stores' cache revalidation and data-fetching only happens on client-side. 
+
+### Success Bailouts
+
+SWR stores, by default, deeply compare success data in between cache updates. This behavior prevents re-notifying subscribers when the contents of the data remains the same. This behavior can be overriden by providing a compare function in `options.compare`.
+
+`mutate` accepts an custom compare function to override this behavior as a fourth parameter.
 
 ## License
 
