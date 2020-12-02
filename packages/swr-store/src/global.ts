@@ -22,7 +22,7 @@ export function mutate<T>(
   key: string,
   data: MutationResult<T>,
   shouldRevalidate = true,
-  compare = dequal,
+  compare: (a: T, b: T) => boolean = dequal,
 ): void {
   setRevalidation(key, shouldRevalidate);
 
