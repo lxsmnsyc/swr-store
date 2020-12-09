@@ -49,18 +49,12 @@ function useSWRStore<T, P extends any[] = []>(
         initialData,
       }),
       subscribe: (callback) => store.subscribe(args, callback),
-      // shouldUpdate: (next, prev) => {
-      //   if (prev.status === next.status) {
-      //     return !Object.is(next.data, prev.data);
-      //   }
-      //   return true;
-      // },
     }),
     (instance) => instance.destroy(),
     [store, initialData, shouldRevalidate, ...args],
   );
 
-  const value = useExternalSubject(sub, false);
+  const value = useExternalSubject(sub, suspense);
 
   useDebugValue(suspense && value.status === 'success' ? value.data : value);
 
