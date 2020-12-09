@@ -37,9 +37,7 @@ export function mutate<T>(
   }
 
   setMutation(key, {
-    result: {
-      ...data,
-    },
+    result: data,
     timestamp: Date.now(),
   });
 }
@@ -49,9 +47,7 @@ export function subscribe<T>(
   listener: MutationListener<T>,
 ): () => void {
   const wrappedListener: MutationListener<T> = (value) => {
-    listener({
-      ...value,
-    });
+    listener(value);
   };
   addMutationListener(key, wrappedListener);
   return () => {

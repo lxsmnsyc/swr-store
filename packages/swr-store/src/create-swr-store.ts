@@ -146,22 +146,16 @@ export default function createSWRStore<T, P extends any[] = []>(
           data: NEVER_PROMISE as Promise<T>,
         };
       }
-      return {
-        ...currentMutation.result,
-      };
+      return currentMutation.result;
     }
 
     if (currentMutation) {
       if (!revalidateOptions.shouldRevalidate) {
-        return {
-          ...currentMutation.result,
-        };
+        return currentMutation.result;
       }
       // If mutation is still fresh, return mutation
       if (currentMutation.timestamp + fullOpts.freshAge > timestamp) {
-        return {
-          ...currentMutation.result,
-        };
+        return currentMutation.result;
       }
     }
 
@@ -254,9 +248,7 @@ export default function createSWRStore<T, P extends any[] = []>(
       // Updating this means that the freshness or the staleness
       // of a mutation resets
       currentMutation.timestamp = timestamp;
-      return {
-        ...currentMutation.result,
-      };
+      return currentMutation.result;
     }
 
     // Otherwise, set the new mutation
@@ -265,9 +257,7 @@ export default function createSWRStore<T, P extends any[] = []>(
       timestamp,
     });
 
-    return {
-      ...result,
-    };
+    return result;
   };
 
   type Cleanup = () => void;
