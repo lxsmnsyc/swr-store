@@ -3693,6 +3693,11 @@ esbuild@^0.8.10, esbuild@^0.8.12:
   resolved "https://registry.yarnpkg.com/esbuild/-/esbuild-0.8.17.tgz#1c16c6d5988dcfdcf27a7e1612b7fd05e1477c54"
   integrity sha512-ReHap+Iyn5BQF0B8F3xrLwu+j57ri5uDUw2ej9XTPAuFDebYiWwRzBY4jhF610bklveXLbCGim/8/2wQKQlu1w==
 
+esbuild@^0.8.21:
+  version "0.8.21"
+  resolved "https://registry.yarnpkg.com/esbuild/-/esbuild-0.8.21.tgz#c431f8af457795c2fecb1b2873cb8eaef4e5b53c"
+  integrity sha512-vRRx5MZmiekw2R7jK5BppvBUFCJA0Zkl0wYxrDmyUvMPBcQC/xJvxJUM4R+Hgjgb3gp5P1W655AsuoqDeQQDVw==
+
 escalade@^3.1.1:
   version "3.1.1"
   resolved "https://registry.yarnpkg.com/escalade/-/escalade-3.1.1.tgz#d8cfdc7000965c5a0174b4a82eaa5c0552742e40"
@@ -7595,6 +7600,28 @@ pridepack@^0.3.7:
     typescript "^4.0.5"
     yargs "^16.1.1"
 
+pridepack@^0.4.1:
+  version "0.4.1"
+  resolved "https://registry.yarnpkg.com/pridepack/-/pridepack-0.4.1.tgz#06bd210432a34ce955bf81955843ec6b592ccf28"
+  integrity sha512-K5C3EtfslMEggPNAiE03kOK2L83HVRZO8bKEwIJCLrf3/G89FNRUFEKuCS9XC+X4ZeQ/F94T3DpwKIY6tM1YHg==
+  dependencies:
+    "@jest/types" "^26.6.2"
+    chalk "^4.1.0"
+    dotenv "^8.2.0"
+    esbuild "^0.8.21"
+    eslint "^7.13.0"
+    execa "^4.1.0"
+    fs-extra "^9.0.1"
+    ink "^3.0.8"
+    ink-spinner "^4.0.1"
+    jest "^26.6.3"
+    package-json-type "^1.0.3"
+    react "^16.13.1"
+    ts-jest "^26.4.4"
+    tslib "^2.0.3"
+    typescript "^4.0.5"
+    yargs "^16.1.1"
+
 process-nextick-args@~2.0.0:
   version "2.0.1"
   resolved "https://registry.yarnpkg.com/process-nextick-args/-/process-nextick-args-2.0.1.tgz#7820d9b16120cc55ca9ae7792680ae7dba6d7fe2"
@@ -7728,6 +7755,13 @@ react-devtools-core@^4.6.0:
   dependencies:
     shell-quote "^1.6.1"
     ws "^7"
+
+react-external-subject@^0.2.0:
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/react-external-subject/-/react-external-subject-0.2.0.tgz#4319079721371c2cf4ecb09f3ff027de2a87fa6e"
+  integrity sha512-lxizAfAeoXAjDYOPng0ZkRHNPBEpASOyBLOzbGf52IUhlmgLyS6Dyh2Rb0d67wAQZhEzo62RCX0C6T7e/dXCiA==
+  dependencies:
+    "@lyonph/react-hooks" "^0.1.2"
 
 react-is@^16.8.1:
   version "16.13.1"
@@ -9331,6 +9365,11 @@ urix@^0.1.0:
   version "0.1.0"
   resolved "https://registry.yarnpkg.com/urix/-/urix-0.1.0.tgz#da937f7a62e21fec1fd18d49b35c2935067a6c72"
   integrity sha1-2pN/emLiH+wf0Y1Js1wpNQZ6bHI=
+
+use-dispose@^0.4.0:
+  version "0.4.0"
+  resolved "https://registry.yarnpkg.com/use-dispose/-/use-dispose-0.4.0.tgz#795ab525dac4a75838ee5a661a4e7b5cee50bf88"
+  integrity sha512-eHSKynDFT8WD3bSCNsIlyWi74uYA+qUCz056guttm1htg2vgpuyMFDM29nzkpgts7Ej2EY+55J1x+itGOHMfOw==
 
 use@^3.1.0:
   version "3.1.1"
