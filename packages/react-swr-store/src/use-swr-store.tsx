@@ -1,13 +1,27 @@
 import { useDebugValue } from 'react';
 import { SWRStore, MutationResult } from 'swr-store';
 import {
-  createExternalSubject,
-  useExternalSubject,
-  ExternalSubject,
-} from 'react-external-subject';
-import {
-  useDisposableMemo,
-} from 'use-dispose';
+  useMemoCondition,
+  useSubscription,
+  Subscription,
+} from '@lyonph/react-hooks';
+
+function compareArray<T extends any[] = []>(
+  prev: T, next: T,
+): boolean {
+  if (prev === next) {
+    return false;
+  }
+  if (prev.length !== next.length) {
+    return true;
+  }
+  for (let i = 0; i < prev.length; i += 1) {
+    if (!Object.is(prev[i], next[i])) {
+      return true;
+    }
+  }
+  return false;
+}
 
 interface BaseOptions<T> {
   initialData?: T;
@@ -42,19 +56,19 @@ function useSWRStore<T, P extends any[] = []>(
     suspense: false,
   },
 ): MutationResult<T> | T {
-  const sub = useDisposableMemo(
-    (): ExternalSubject<MutationResult<T>> => createExternalSubject({
+  const sub = useMemoCondition(
+    (): Subscription<MutationResult<T>> => ({
       read: () => store.get(args, {
         shouldRevalidate,
         initialData,
       }),
       subscribe: (callback) => store.subscribe(args, callback),
     }),
-    (instance) => instance.destroy(),
     [store, initialData, shouldRevalidate, ...args],
+    compareArray,
   );
 
-  const value = useExternalSubject(sub, suspense);
+  const value = useSubscription(sub);
 
   useDebugValue(suspense && value.status === 'success' ? value.data : value);
 
