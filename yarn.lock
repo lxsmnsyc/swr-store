@@ -1262,10 +1262,10 @@
     npmlog "^4.1.2"
     write-file-atomic "^2.3.0"
 
-"@lyonph/react-hooks@^0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@lyonph/react-hooks/-/react-hooks-0.2.0.tgz#a82de3e610c8621650d3ed012d0bd07ae2df3bb6"
-  integrity sha512-jY17Bl08TWRwByWdJ/ZCm2oEO1TgHEWKyEPgJGoqMWCjamn/2I5dHGAgAUA4NosaY81u8RXj42rsms5+Zl18bg==
+"@lyonph/react-hooks@^0.2.2":
+  version "0.2.2"
+  resolved "https://registry.yarnpkg.com/@lyonph/react-hooks/-/react-hooks-0.2.2.tgz#e1daa749681c3e97621dc836ac8e52381edcf733"
+  integrity sha512-IS1aaXuVz46SlEsuxX9PoUp9x17yMxFcbonC6ZS9iYwsJQP5AcpPuY5s7vCI12uOAmQPuF9PojavmLlc896l2w==
 
 "@mrmlnc/readdir-enhanced@^2.2.1":
   version "2.2.1"
