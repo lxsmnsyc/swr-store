@@ -1,10 +1,7 @@
-import { dequal } from 'dequal/lite';
 import {
   getMutation,
   getMutationListenerSize,
-  MutationListener,
   MutationPending,
-  MutationResult,
   setMutation,
 } from './cache/mutation-cache';
 import {
@@ -12,6 +9,7 @@ import {
   removeRevalidationListener,
   setRevalidation,
 } from './cache/revalidation-cache';
+import DEFAULT_CONFIG from './default-config';
 import {
   mutate,
   subscribe,
@@ -19,88 +17,19 @@ import {
 } from './global';
 import IS_CLIENT from './is-client';
 import NEVER_PROMISE from './never-promise';
-
-export type SWRCompare<T> = (a: T, b: T) => boolean;
-
-export type SWRTrigger<P extends any[] = []> =
-  (args: P, shouldRevalidate?: boolean) => void;
-
-export type SWRMutate<T, P extends any[] = []> =
-  (args: P, data: MutationResult<T>, shouldRevalidate?: boolean, compare?: SWRCompare<T>) => void;
-
-export interface SWRGetOptions<T> {
-  shouldRevalidate?: boolean;
-  initialData?: T;
-}
-
-export type SWRGet<T, P extends any[] = []> =
-  (args: P, options?: SWRGetOptions<T>) => MutationResult<T>;
-
-export type SWRSubscribe<T, P extends any[] = []> =
-  (args: P, listener: MutationListener<T>) => () => void;
-
-export interface SWRStoreBaseOptions<T, P extends any[] = []> {
-  get: (...args: P) => Promise<T>;
-  initialData?: T;
-  refreshInterval?: number;
-}
-
-export interface SWRStoreExtendedOptions<T, P extends any[] = []> {
-  key: (...args: P) => string;
-
-  revalidateOnFocus: boolean;
-  revalidateOnVisibility: boolean;
-  revalidateOnNetwork: boolean;
-
-  refreshWhenOffline: boolean;
-  refreshWhenHidden: boolean;
-  refreshWhenBlurred: boolean;
-
-  freshAge: number;
-  staleAge: number;
-
-  compare: SWRCompare<T>;
-}
-
-export type SWRStorePartialOptions<T, P extends any[] = []> =
-  Partial<SWRStoreExtendedOptions<T, P>>;
-
-export interface SWRStoreOptions<T, P extends any[] = []>
-  extends SWRStorePartialOptions<T, P>, SWRStoreBaseOptions<T, P> {
-}
-
-export interface SWRFullOptions<T, P extends any[] = []>
-  extends SWRStoreExtendedOptions<T, P>, SWRStoreBaseOptions<T, P> {
-}
-
-export interface SWRStore<T, P extends any[] = []> {
-  trigger: SWRTrigger<P>;
-  mutate: SWRMutate<T, P>;
-  get: SWRGet<T, P>;
-  subscribe: SWRSubscribe<T, P>;
-}
-
-function defaultKey<P extends any[] = []>(...args: P): string {
-  return JSON.stringify(args);
-}
+import {
+  SWRFullOptions,
+  SWRGet,
+  SWRGetOptions,
+  SWRStore,
+  SWRStoreOptions,
+} from './types';
 
 export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
 ): SWRStore<T, P> {
-  const defaultOpts: SWRStoreExtendedOptions<T, P> = {
-    revalidateOnFocus: false,
-    revalidateOnNetwork: false,
-    revalidateOnVisibility: false,
-    refreshWhenHidden: false,
-    refreshWhenBlurred: false,
-    refreshWhenOffline: false,
-    freshAge: 2000,
-    staleAge: 30000,
-    key: defaultKey,
-    compare: dequal,
-  };
   const fullOpts: SWRFullOptions<T, P> = {
-    ...defaultOpts,
+    ...DEFAULT_CONFIG,
     ...options,
   };
 
@@ -110,6 +39,7 @@ export default function createSWRStore<T, P extends any[] = []>(
     const defaultRevalidateOptions: SWRGetOptions<T> = {
       shouldRevalidate: true,
       initialData: fullOpts.initialData,
+      hydrate: false,
     };
     const revalidateOptions: SWRGetOptions<T> = {
       ...defaultRevalidateOptions,
@@ -133,7 +63,10 @@ export default function createSWRStore<T, P extends any[] = []>(
         },
         timestamp,
       };
-      setMutation(generatedKey, currentMutation);
+
+      if (revalidateOptions.hydrate) {
+        setMutation(generatedKey, currentMutation);
+      }
     }
 
     // Opt-out of fetching process
@@ -310,11 +243,11 @@ export default function createSWRStore<T, P extends any[] = []>(
             let interval: undefined | number;
 
             const enter = () => {
-              clearInterval(interval);
-              interval = setInterval(onRevalidate, fullOpts.refreshInterval);
+              window.clearInterval(interval);
+              interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
             };
             const exit = () => {
-              clearInterval(interval);
+              window.clearInterval(interval);
               interval = undefined;
             };
 
@@ -324,7 +257,7 @@ export default function createSWRStore<T, P extends any[] = []>(
             return () => {
               window.removeEventListener('blur', enter, false);
               window.removeEventListener('focus', exit, false);
-              clearInterval(interval);
+              window.clearInterval(interval);
             };
           });
         }
@@ -333,11 +266,11 @@ export default function createSWRStore<T, P extends any[] = []>(
             let interval: undefined | number;
 
             const enter = () => {
-              clearInterval(interval);
-              interval = setInterval(onRevalidate, fullOpts.refreshInterval);
+              window.clearInterval(interval);
+              interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
             };
             const exit = () => {
-              clearInterval(interval);
+              window.clearInterval(interval);
               interval = undefined;
             };
 
@@ -347,7 +280,7 @@ export default function createSWRStore<T, P extends any[] = []>(
             return () => {
               window.removeEventListener('offline', enter, false);
               window.removeEventListener('online', exit, false);
-              clearInterval(interval);
+              window.clearInterval(interval);
             };
           });
         }
@@ -356,11 +289,11 @@ export default function createSWRStore<T, P extends any[] = []>(
             let interval: undefined | number;
 
             const onVisibility = () => {
-              clearInterval(interval);
+              window.clearInterval(interval);
               if (document.visibilityState === 'visible') {
                 interval = undefined;
               } else {
-                interval = setInterval(onRevalidate, fullOpts.refreshInterval);
+                interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
               }
             };
 
@@ -368,7 +301,7 @@ export default function createSWRStore<T, P extends any[] = []>(
 
             return () => {
               document.removeEventListener('visibilitychange', onVisibility, false);
-              clearInterval(interval);
+              window.clearInterval(interval);
             };
           });
         }
@@ -378,10 +311,10 @@ export default function createSWRStore<T, P extends any[] = []>(
           || fullOpts.refreshWhenOffline)
         ) {
           subscription(() => {
-            const interval = setInterval(onRevalidate, fullOpts.refreshInterval);
+            const interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
 
             return () => {
-              clearInterval(interval);
+              window.clearInterval(interval);
             };
           });
         }
