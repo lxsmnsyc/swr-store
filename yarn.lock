@@ -1284,15 +1284,15 @@
     npmlog "^4.1.2"
     write-file-atomic "^2.3.0"
 
-"@lyonph/react-hooks@^0.2.2":
-  version "0.2.2"
-  resolved "https://registry.yarnpkg.com/@lyonph/react-hooks/-/react-hooks-0.2.2.tgz#e1daa749681c3e97621dc836ac8e52381edcf733"
-  integrity sha512-IS1aaXuVz46SlEsuxX9PoUp9x17yMxFcbonC6ZS9iYwsJQP5AcpPuY5s7vCI12uOAmQPuF9PojavmLlc896l2w==
-
 "@lyonph/react-hooks@^0.2.3":
   version "0.2.3"
   resolved "https://registry.yarnpkg.com/@lyonph/react-hooks/-/react-hooks-0.2.3.tgz#f8ca46f170e0b65d3b15169c177e19bb68af56c6"
   integrity sha512-RnmYuHeNjGaGBafzxcw0htD8VrzbZh5z/xzQEVicQHE7o1E2bg4h7UbdVNQG0PL/HnMcVxpc1vmtQXnajPmkbA==
+
+"@lyonph/react-hooks@^0.3.3":
+  version "0.3.3"
+  resolved "https://registry.yarnpkg.com/@lyonph/react-hooks/-/react-hooks-0.3.3.tgz#8769356360f21c1d677b494316f8644970a8446f"
+  integrity sha512-z+v7d61LDU0NaoDmGnmKLuN0UPg5p8Kw84tDTMeUrmFasZ2EWx2Oiz6TehG6Ebs1+XzMhAnWqBSnnybFDKasmg==
 
 "@mrmlnc/readdir-enhanced@^2.2.1":
   version "2.2.1"
@@ -3722,11 +3722,6 @@ esbuild@^0.8.12:
   version "0.8.21"
   resolved "https://registry.yarnpkg.com/esbuild/-/esbuild-0.8.21.tgz#c431f8af457795c2fecb1b2873cb8eaef4e5b53c"
   integrity sha512-vRRx5MZmiekw2R7jK5BppvBUFCJA0Zkl0wYxrDmyUvMPBcQC/xJvxJUM4R+Hgjgb3gp5P1W655AsuoqDeQQDVw==
-
-esbuild@^0.8.52:
-  version "0.8.57"
-  resolved "https://registry.yarnpkg.com/esbuild/-/esbuild-0.8.57.tgz#a42d02bc2b57c70bcd0ef897fe244766bb6dd926"
-  integrity sha512-j02SFrUwFTRUqiY0Kjplwjm1psuzO1d6AjaXKuOR9hrY0HuPsT6sV42B6myW34h1q4CRy+Y3g4RU/cGJeI/nNA==
 
 esbuild@^0.9.5:
   version "0.9.7"
@@ -7715,27 +7710,6 @@ pretty-format@^26.0.0, pretty-format@^26.6.2:
     ansi-regex "^5.0.0"
     ansi-styles "^4.0.0"
     react-is "^17.0.1"
-
-pridepack@^0.7.2:
-  version "0.7.2"
-  resolved "https://registry.yarnpkg.com/pridepack/-/pridepack-0.7.2.tgz#fe6fcf48420724bffdda7d42ea0bac32bb851db2"
-  integrity sha512-1m5xK6EOSifbfxCICXepyrOCA3G7kuIAGFXuNckUuD6Fj0wUm2kADMxwKt4zNSAnrGm25wcpYD4q3rNHjdKjOw==
-  dependencies:
-    "@jest/types" "^26.6.2"
-    chalk "^4.1.0"
-    dotenv "^8.2.0"
-    esbuild "^0.8.52"
-    eslint "^7.20.0"
-    execa "^5.0.0"
-    fs-extra "^9.1.0"
-    ink "^3.0.8"
-    ink-spinner "^4.0.1"
-    jest "^26.6.3"
-    package-json-type "^1.0.3"
-    react "^17.0.1"
-    tslib "^2.1.0"
-    typescript "^4.2.2"
-    yargs "^16.2.0"
 
 pridepack@^0.8.0:
   version "0.8.0"
