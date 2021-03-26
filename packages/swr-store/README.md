@@ -135,6 +135,8 @@ const result = userDetails.get([userId], {
 });
 ```
 
+Do note that `options.initialData` won't hydrate the actual store but present a fallback data when the result is still pending. You can use `options.hydrate` to overwrite the current cached data.
+
 ### Lazy Revalidation
 
 SWR stores are lazily revalidated whenever `store.get` is called.
@@ -219,9 +221,11 @@ SWR stores are able to automatically revalidate data based on DOM events. This f
 SWR stores are able to poll for revalidation. They are different to event-based revalidation as polling revalidation happens in intervals.
 
 This behavior can be activated through the following options:
+
 - `options.refreshInterval`: Amount of time (in milliseconds) the revalidation goes through in intervals. Defaults to `undefined` (Does not poll). Polling begins immediately after the lazy setup has been triggered.
 
 The default behavior can be overriden by the following options:
+
 - `options.refreshWhenHidden`: Overrides the default polling behavior and only begins polling after the page becomes hidden (triggered by document `visibilitychange` event.). Once the document becomes visible, polling halts.
 - `options.refreshWhenBlurred`: Overrides the default polling behavior and only begins polling after the page loses focus (triggered by window `blur` and `focus` events). Once the page is focused again, polling halts.
 - `options.refreshWhenOffline`: Overrides the default polling behavior and only begins polling after the page becomes offline (triggered by window `offline` and `online` events). Once the page is focused again, polling halts.
@@ -240,6 +244,7 @@ SWR stores can define how 'fresh' or 'stale' the cache is, which can alter the r
 - If the cache is 'stale', revalidation phases goes through, but the result does not return to `'pending'` state.
 
 These behavior can be defined through the following options:
+
 - `options.freshAge`: Defines how long the cache stays 'fresh', in milliseconds. Defaults to `2000`. (2 seconds).
 - `options.staleAge`: Defines how long the cache stays 'stale' after becoming 'fresh', in milliseconds. Defaults to `30000` (30 seconds).
 
@@ -254,7 +259,7 @@ SWR Stores throttles data fetching processes through the caching strategy. Cache
 
 ### CSR-Only Revalidation and Fetching
 
-SWR stores' cache revalidation and data-fetching only happens on client-side. 
+SWR stores' cache revalidation and data-fetching only happens on client-side.
 
 ### Success Bailouts
 
