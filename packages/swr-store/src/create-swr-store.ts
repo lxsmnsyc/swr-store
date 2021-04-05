@@ -25,6 +25,14 @@ import {
   SWRStoreOptions,
 } from './types';
 
+let index = 0;
+
+function getIndex() {
+  const current = index;
+  index += 1;
+  return current;
+}
+
 export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
 ): SWRStore<T, P> {
@@ -373,6 +381,7 @@ export default function createSWRStore<T, P extends any[] = []>(
   };
 
   return {
+    id: `SWRStore-${getIndex()}`,
     trigger: (args, shouldRevalidate = true) => {
       const generatedKey = fullOpts.key(...args);
       trigger(generatedKey, shouldRevalidate);

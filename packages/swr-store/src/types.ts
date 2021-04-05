@@ -58,6 +58,7 @@ export interface SWRFullOptions<T, P extends any[] = []>
 }
 
 export interface SWRStore<T, P extends any[] = []> {
+  id: string;
   trigger: SWRTrigger<P>;
   mutate: SWRMutate<T, P>;
   get: SWRGet<T, P>;
