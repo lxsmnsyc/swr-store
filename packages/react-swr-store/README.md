@@ -19,7 +19,7 @@ yarn add swr-store react-swr-store
 ```tsx
 import React, { Suspense } from 'react';
 import { createSWRStore } from 'swr-store';
-import useSWRStore from 'react-swr-store';
+import { useSWRStore, SWRStoreRoot } from 'react-swr-store';
 
 const API = 'https://dog.ceo/api/breed/';
 const API_SUFFIX = '/images/random';
@@ -62,25 +62,30 @@ function Trigger(): JSX.Element {
 
 export default function App(): JSX.Element {
   return (
-    <>
+    <SWRStoreRoot>
       <Trigger />
       <div>
         <Suspense fallback={<h1>Loading...</h1>}>
           <DogImage />
         </Suspense>
       </div>
-    </>
+    </SWRStoreRoot>
   );
 }
 ```
 
 ## API
 
+### `<SWRStoreRoot>`
+
+Must be located at the root of the app/tree.
+
 ### `useSWRStore(store, args, options)`
 
 Subscribes to an SWR store, passing `args`, which are received by the corresponding store for data-fetching and cache updates.
 
 `options` has the following properties:
+
 - `suspense`: When `true`, suspends the component when receiving the result, if the result status is `'pending'` until the result resolves,where `useSWRStore` returns the resolved data. Otherwise, `useSWRStore` returns the result. Defaults to `false`.
 - `initialData`: Allows lazy hydration when reading the store. If the store does not have cache, `initialData` hydrates the cache and attempts a revalidation. If no `initialData` is provided, defaults to store's `options.initialData`.
 - `shouldRevalidate`: If `true`, goes through the revalidation process when reading through the cache. Defaults to `true`.

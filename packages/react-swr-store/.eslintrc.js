@@ -1,4 +1,4 @@
-module.exports = {
+  module.exports = {
   "extends": [
     'lxsmnsyc/typescript/react',
   ],
