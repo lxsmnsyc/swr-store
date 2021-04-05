@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react';
 import { createSWRStore } from 'swr-store';
-import useSWRStore from 'react-swr-store';
+import { SWRStoreRoot, useSWRStore } from 'react-swr-store';
 
 const API = 'https://dog.ceo/api/breed/';
 const API_SUFFIX = '/images/random';
@@ -43,7 +43,7 @@ function Trigger(): JSX.Element {
 
 export default function App(): JSX.Element {
   return (
-    <>
+    <SWRStoreRoot>
       <Trigger />
       <p>
         Pressing the Trigger button revalidates the image below.
@@ -60,6 +60,6 @@ export default function App(): JSX.Element {
           Image response has a fresh age of 2 seconds and a stale age of 30 seconds.
         </p>
       </div>
-    </>
+    </SWRStoreRoot>
   );
 }
