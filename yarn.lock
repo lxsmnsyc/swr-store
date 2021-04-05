@@ -7188,10 +7188,10 @@ preact-scoped-model@^2.0.2:
   dependencies:
     "@lyonph/preact-hooks" "^0.3.0"
 
-preact-store-adapter@^0.2.1:
-  version "0.2.1"
-  resolved "https://registry.yarnpkg.com/preact-store-adapter/-/preact-store-adapter-0.2.1.tgz#1b2dabccb849263c749895543b32920bddd01eb8"
-  integrity sha512-qnORinfwqOOJo+awACrycyCG2SwaGnzXgj4O1DdEkVAl+yau1XW7kcy0WaxTPTwjbuEsv1OVDSK05B5F66vUIw==
+preact-store-adapter@^0.3.1:
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/preact-store-adapter/-/preact-store-adapter-0.3.1.tgz#6f033a0b0a6271863c6604ea55af7f44eeddfbe9"
+  integrity sha512-BYyCoKzuKmroQEshGM1hFhnDlqtffeg5+JJVOSHv5oYLoO8Gx4xI+7mhm8odriJAJe9/ZKFoHeeNeLjHfVDMcQ==
   dependencies:
     "@lyonph/preact-hooks" "^0.3.0"
     preact-scoped-model "^2.0.2"
@@ -7435,10 +7435,10 @@ react-scoped-model@^2.0.2:
   dependencies:
     "@lyonph/react-hooks" "^0.3.5"
 
-react-store-adapter@^0.2.1:
-  version "0.2.1"
-  resolved "https://registry.yarnpkg.com/react-store-adapter/-/react-store-adapter-0.2.1.tgz#84a532ccd68b5b4e543f6c824547b7d910c9d1ca"
-  integrity sha512-F3c/C0Az3RGuUOLHt8d+NRyeT4jyQnQifSXplr83uO8fRBif5aA7Eq+bMLUBZ1WMyWzGAvoyyu7qkWDBGgyuzw==
+react-store-adapter@^0.3.1:
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/react-store-adapter/-/react-store-adapter-0.3.1.tgz#55850baf83ea4d6e89cd5cd1b79e12c0c82ab8c6"
+  integrity sha512-P9l1lpaXJc8uFbYG11xHkxaZa3LCWCVKLsGn/jTmCnt9E3a6JhyIU3irDCP3b6bGS3V8orwE3AtOktyLEDZ+fg==
   dependencies:
     "@lyonph/react-hooks" "^0.3.4"
     react-scoped-model "^2.0.2"

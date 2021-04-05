@@ -49,7 +49,7 @@
   },
   "dependencies": {
     "@lyonph/preact-hooks": "^0.3.0",
-    "preact-store-adapter": "^0.2.1"
+    "preact-store-adapter": "^0.3.1"
   },
   "description": "Preact bindings for swr-store",
   "author": "Alexis Munsayac",
