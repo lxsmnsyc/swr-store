@@ -1,0 +1,22 @@
+{
+  "name": "preact-scoped-model-vite",
+  "version": "2.0.2",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "preact": "^10.5.13",
+    "swr-store": "0.6.0",
+    "preact-swr-store": "0.6.0"
+  },
+  "devDependencies": {
+    "@prefresh/vite": "^2.1.0",
+    "eslint": "^7.22.0",
+    "eslint-config-lxsmnsyc": "^0.1.20",
+    "typescript": "^4.2.3",
+    "vite": "^2.1.1"
+  },
+  "private": true
+}
