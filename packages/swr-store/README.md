@@ -267,6 +267,10 @@ SWR stores, by default, deeply compare success data in between cache updates. Th
 
 `mutate` accepts an custom compare function to override this behavior as a fourth parameter.
 
+### Retries
+
+SWR stores may retry failing requests. `options.retryCount` defines the max retry count while `options.retryInterval` defines the timeout until the next retry. By default, SWR stores retry indefinitely in a `5000ms` interval.
+
 ## License
 
 MIT © [lxsmnsyc](https://github.com/lxsmnsyc)

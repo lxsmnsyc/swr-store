@@ -16,6 +16,7 @@ const DEFAULT_CONFIG: SWRStoreExtendedOptions<any, any> = {
   staleAge: 30000,
   key: defaultKey,
   compare: dequal,
+  retryInterval: 5000,
 };
 
 export default DEFAULT_CONFIG;

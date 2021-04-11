@@ -17,6 +17,7 @@ import {
 } from './global';
 import IS_CLIENT from './is-client';
 import NEVER_PROMISE from './never-promise';
+import retry from './retry';
 import {
   SWRFullOptions,
   SWRGet,
@@ -94,6 +95,10 @@ export default function createSWRStore<T, P extends any[] = []>(
       if (!revalidateOptions.shouldRevalidate) {
         return currentMutation.result;
       }
+      // There's an ongoing pending request, wait for it.
+      if (currentMutation.result.status === 'pending') {
+        return currentMutation.result;
+      }
       // If mutation is still fresh, return mutation
       if (currentMutation.timestamp + fullOpts.freshAge > timestamp) {
         return currentMutation.result;
@@ -101,7 +106,10 @@ export default function createSWRStore<T, P extends any[] = []>(
     }
 
     // Perform fetch
-    const pendingData = fullOpts.get(...args);
+    const pendingData = retry(() => fullOpts.get(...args), {
+      count: fullOpts.retryCount,
+      interval: fullOpts.retryInterval,
+    });
 
     // Capture result
     const result: MutationPending<T> = {
