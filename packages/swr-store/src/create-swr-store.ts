@@ -107,8 +107,8 @@ export default function createSWRStore<T, P extends any[] = []>(
 
     // Perform fetch
     const pendingData = retry(() => fullOpts.get(...args), {
-      count: fullOpts.retryCount,
-      interval: fullOpts.retryInterval,
+      count: fullOpts.maxRetryCount,
+      interval: fullOpts.maxRetryInterval,
     });
 
     // Capture result

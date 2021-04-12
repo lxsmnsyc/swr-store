@@ -1,26 +1,22 @@
 interface RetryOptions {
   count?: number;
-  interval?: number;
+  interval: number;
 }
 
 export default function retry<T>(supplier: () => Promise<T>, options: RetryOptions): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    let count = 0;
-
-    const attempt = () => {
-      supplier().then(resolve).catch((err) => {
-        if (typeof options.count === 'number' && count > options.count) {
-          reject(err);
+    const backoff = (timeout = 10, count = 0) => {
+      supplier().then(resolve).catch((reason) => {
+        if (typeof options.count === 'number' && options.count <= count) {
+          reject(reason);
         } else {
           setTimeout(() => {
-            count += 1;
-
-            attempt();
-          }, options.interval);
+            backoff(Math.max(10, Math.min(options.interval, timeout * 2)), count + 1);
+          }, timeout);
         }
       });
     };
 
-    attempt();
+    backoff();
   });
 }

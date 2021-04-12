@@ -27,7 +27,7 @@ export interface SWRStoreBaseOptions<T, P extends any[] = []> {
   get: (...args: P) => Promise<T>;
   initialData?: T;
   refreshInterval?: number;
-  retryCount?: number;
+  maxRetryCount?: number;
 }
 
 export interface SWRStoreExtendedOptions<T, P extends any[] = []> {
@@ -46,7 +46,7 @@ export interface SWRStoreExtendedOptions<T, P extends any[] = []> {
 
   compare: SWRCompare<T>;
 
-  retryInterval: number;
+  maxRetryInterval: number;
 }
 
 export type SWRStorePartialOptions<T, P extends any[] = []> =

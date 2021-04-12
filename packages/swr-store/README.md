@@ -269,7 +269,7 @@ SWR stores, by default, deeply compare success data in between cache updates. Th
 
 ### Retries
 
-SWR stores may retry failing requests. `options.retryCount` defines the max retry count while `options.retryInterval` defines the timeout until the next retry. By default, SWR stores retry indefinitely in a `5000ms` interval.
+SWR stores implements the exponential backoff algorithm for retry intervals whenever a request fails. By default, SWR stores retry indefinitely until the request resolves successfully at a maximum interval of `5000ms`. Limit can be defined through `options.maxRetryCount` and the interval can be overriden with `options.maxRetryInterval`.
 
 ## License
 
