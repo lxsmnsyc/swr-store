@@ -150,7 +150,7 @@ export default function createSWRStore<T, P extends any[] = []>(
     // Set current retry
     retries.set(generatedKey, pendingRetry);
 
-    const pendingData = pendingRetry.promise;
+    const pendingData = pendingRetry.resolvable.promise;
 
     // Capture result
     const result: MutationPending<T> = {
