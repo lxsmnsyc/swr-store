@@ -1,6 +1,6 @@
 {
   "name": "react-swr-store-vite",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -9,8 +9,8 @@
   "dependencies": {
     "react": "^17.0.1",
     "react-dom": "^17.0.1",
-    "react-swr-store": "0.8.1",
-    "swr-store": "0.8.1"
+    "react-swr-store": "0.8.2",
+    "swr-store": "0.8.2"
   },
   "devDependencies": {
     "@types/react": "^17.0.3",
