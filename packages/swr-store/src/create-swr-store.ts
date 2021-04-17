@@ -44,7 +44,7 @@ import {
 } from './global';
 import IS_CLIENT from './is-client';
 import NEVER_PROMISE from './never-promise';
-import retry from './retry';
+import retry, { Retry } from './retry';
 import {
   SWRFullOptions,
   SWRGet,
@@ -60,6 +60,8 @@ function getIndex() {
   index += 1;
   return current;
 }
+
+const retries = new Map<string, Retry<any>>();
 
 export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
@@ -122,21 +124,33 @@ export default function createSWRStore<T, P extends any[] = []>(
       if (!revalidateOptions.shouldRevalidate) {
         return currentMutation.result;
       }
-      // There's an ongoing pending request, wait for it.
-      if (currentMutation.result.status === 'pending') {
-        return currentMutation.result;
-      }
       // If mutation is still fresh, return mutation
       if (currentMutation.timestamp + fullOpts.freshAge > timestamp) {
         return currentMutation.result;
       }
+
+      // We have to assume that if the request is no longer fresh
+      // and the request is still pending, we need to cancel it
+      // specially if it's retrying.
+      if (currentMutation.result.status === 'pending') {
+        const previousRetry = retries.get(generatedKey);
+
+        if (previousRetry) {
+          previousRetry.cancel();
+        }
+      }
     }
 
     // Perform fetch
-    const pendingData = retry(() => fullOpts.get(...args), {
+    const pendingRetry = retry(() => fullOpts.get(...args), {
       count: fullOpts.maxRetryCount,
       interval: fullOpts.maxRetryInterval,
     });
+
+    // Set current retry
+    retries.set(generatedKey, pendingRetry);
+
+    const pendingData = pendingRetry.promise;
 
     // Capture result
     const result: MutationPending<T> = {
