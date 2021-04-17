@@ -14,7 +14,10 @@ const dogAPI = createSWRStore<APIResult, [string]>({
   key: (breed: string) => breed,
   get: async (breed: string) => {
     const response = await fetch(`${API}${breed}${API_SUFFIX}`);
-    return (await response.json()) as APIResult;
+    if (response.ok) {
+      return (await response.json()) as APIResult;
+    }
+    throw new Error('Not found');
   },
   revalidateOnFocus: true,
   revalidateOnNetwork: true,
