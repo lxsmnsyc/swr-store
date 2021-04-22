@@ -25,44 +25,43 @@
  * @author Alexis Munsayac <alexis.munsayac@gmail.com>
  * @copyright Alexis Munsayac 2021
  */
-import {
-  addReactiveCacheListener,
-  createReactiveCache,
-  ReactiveCacheListener,
-  removeReactiveCacheListener,
-  setReactiveCacheValue,
-} from './reactive-cache';
-import updateData from '../devtools';
+function parseSafe<T>(obj: T) {
+  const getCircularReplacer = () => {
+    const seen = new WeakSet();
+    return (_: string, value: unknown): any => {
+      if (value instanceof Promise) {
+        return '« Promise »';
+      }
+      if (value instanceof Map) {
+        return Array.from(value);
+      }
+      if (value instanceof Set) {
+        return Array.from(value);
+      }
+      if (typeof value === 'function') {
+        return `ƒ ${value.name} () { }`;
+      }
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) {
+          return '« recursive »';
+        }
+        seen.add(value);
+      }
+      return value;
+    };
+  };
 
-export const REVALIDATION_CACHE = createReactiveCache<boolean>();
-
-export type RevalidationListener = ReactiveCacheListener<boolean>;
-
-export function addRevalidationListener(
-  key: string,
-  listener: RevalidationListener,
-): void {
-  addReactiveCacheListener(REVALIDATION_CACHE, key, listener);
+  return JSON.stringify(obj, getCircularReplacer());
 }
 
-export function removeRevalidationListener(
-  key: string,
-  listener: RevalidationListener,
-): void {
-  removeReactiveCacheListener(REVALIDATION_CACHE, key, listener);
-}
-
-export function setRevalidation(
-  key: string,
-  value: boolean,
-  notify = true,
-): void {
-  setReactiveCacheValue(REVALIDATION_CACHE, key, value, notify);
-  updateData(key, 'REVALIDATION', value);
-}
-
-export function getRevalidation(
-  key: string,
-): boolean | undefined {
-  return REVALIDATION_CACHE.cache.get(key)?.value;
+export default function updateData<T>(key: string, type: string, data: T): void {
+  if (process.env.NODE_ENV !== 'production' && typeof document !== 'undefined') {
+    document.dispatchEvent(new CustomEvent('__SWR_STORE__', {
+      detail: parseSafe({
+        key,
+        type,
+        data,
+      }),
+    }));
+  }
 }

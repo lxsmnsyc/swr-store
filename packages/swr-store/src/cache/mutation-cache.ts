@@ -25,6 +25,7 @@
  * @author Alexis Munsayac <alexis.munsayac@gmail.com>
  * @copyright Alexis Munsayac 2021
  */
+import updateData from '../devtools';
 import {
   addReactiveCacheListener,
   createReactiveCache,
@@ -79,6 +80,7 @@ export function setMutation<T>(
   value: Mutation<T>,
 ): void {
   setReactiveCacheValue(MUTATION_CACHE, key, value);
+  updateData(key, 'MUTATION', value);
 }
 
 export function getMutation<T>(
