@@ -1,5 +1,13 @@
+/** @jsx h */
 import 'preact/debug';
-import { Suspense } from 'preact/compat';
+import { FunctionComponent, h } from 'preact';
+import {
+  useContext,
+  createContext,
+  StateUpdater,
+  Suspense,
+  useState,
+} from 'preact/compat';
 import { createSWRStore } from 'swr-store';
 import { SWRStoreRoot, useSWRStore } from 'preact-swr-store';
 
@@ -22,10 +30,17 @@ const dogAPI = createSWRStore<APIResult, [string]>({
   },
   revalidateOnFocus: true,
   revalidateOnNetwork: true,
+  maxRetryCount: 10,
 });
 
+const Breed = createContext<[string, StateUpdater<string>]>(
+  ['shiba', () => { /* */ }],
+);
+
 function DogImage(): JSX.Element {
-  const data = useSWRStore(dogAPI, ['shiba'], {
+  const [state] = useContext(Breed);
+
+  const data = useSWRStore(dogAPI, [state], {
     suspense: true,
   });
 
@@ -33,11 +48,13 @@ function DogImage(): JSX.Element {
 }
 
 function Trigger(): JSX.Element {
+  const [state] = useContext(Breed);
+
   return (
     <button
       type="button"
       onClick={() => {
-        dogAPI.trigger(['shiba']);
+        dogAPI.trigger([state]);
       }}
     >
       Trigger
@@ -45,25 +62,58 @@ function Trigger(): JSX.Element {
   );
 }
 
+function SetBreed(): JSX.Element {
+  const [state, setState] = useContext(Breed);
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        setState(event.target.breed.value);
+      }}
+    >
+      <button type="submit">Set Breed</button>
+      <input
+        type="text"
+        name="breed"
+        value={state}
+      />
+    </form>
+  );
+}
+
+const BreedContext: FunctionComponent = ({ children }) => {
+  const state = useState('shiba');
+
+  return (
+    <Breed.Provider value={state}>
+      {children}
+    </Breed.Provider>
+  );
+};
+
 export default function App(): JSX.Element {
   return (
     <SWRStoreRoot>
-      <Trigger />
-      <p>
-        Pressing the Trigger button revalidates the image below.
-      </p>
-      <div>
-        <Suspense fallback={<h1>Loading...</h1>}>
-          <DogImage />
-        </Suspense>
+      <BreedContext>
+        <Trigger />
+        <SetBreed />
         <p>
-          Image above will automatically update when the page
-          gets re-focused or network goes back online.
+          Pressing the Trigger button revalidates the image below.
         </p>
-        <p>
-          Image response has a fresh age of 2 seconds and a stale age of 30 seconds.
-        </p>
-      </div>
+        <div>
+          <Suspense fallback={<h1>Loading...</h1>}>
+            <DogImage />
+          </Suspense>
+          <p>
+            Image above will automatically update when the page
+            gets re-focused or network goes back online.
+          </p>
+          <p>
+            Image response has a fresh age of 2 seconds and a stale age of 30 seconds.
+          </p>
+        </div>
+      </BreedContext>
     </SWRStoreRoot>
   );
 }

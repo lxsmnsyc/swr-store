@@ -27,12 +27,11 @@
  */
 import { dequal } from 'dequal/lite';
 import {
-  addMutationListener,
   getMutation,
   MutationListener,
   MutationResult,
-  removeMutationListener,
   setMutation,
+  subscribeMutation,
 } from './cache/mutation-cache';
 import {
   setRevalidation,
@@ -60,12 +59,14 @@ export function mutate<T>(
     && current.result.status === 'success' && data.status === 'success'
     && compare(current.result.data, data.data)
   ) {
+    current.timestamp = Date.now();
     return;
   }
 
   setMutation(key, {
     result: data,
     timestamp: Date.now(),
+    isValidating: false,
   });
 }
 
@@ -76,8 +77,5 @@ export function subscribe<T>(
   const wrappedListener: MutationListener<T> = (value) => {
     listener(value);
   };
-  addMutationListener(key, wrappedListener);
-  return () => {
-    removeMutationListener(key, wrappedListener);
-  };
+  return subscribeMutation(key, wrappedListener);
 }

@@ -58,28 +58,21 @@ export function createReactiveCacheRef<T>(
   return newRef;
 }
 
-export function addReactiveCacheListener<T>(
+export function subscribeReactiveCache<T>(
   cache: ReactiveCache<T>,
   key: string,
   listener: ReactiveCacheListener<T>,
-): void {
+): () => void {
   let subscribers = cache.subscribers.get(key);
   if (!subscribers) {
     subscribers = new Set();
     cache.subscribers.set(key, subscribers);
   }
   subscribers.add(listener);
-}
 
-export function removeReactiveCacheListener<T>(
-  cache: ReactiveCache<T>,
-  key: string,
-  listener: ReactiveCacheListener<T>,
-): void {
-  const subscribers = cache.subscribers.get(key);
-  if (subscribers) {
-    subscribers.delete(listener);
-  }
+  return () => {
+    subscribers?.delete(listener);
+  };
 }
 
 export function setReactiveCacheValue<T>(

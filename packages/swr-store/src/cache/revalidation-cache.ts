@@ -26,30 +26,21 @@
  * @copyright Alexis Munsayac 2021
  */
 import {
-  addReactiveCacheListener,
   createReactiveCache,
   ReactiveCacheListener,
-  removeReactiveCacheListener,
   setReactiveCacheValue,
+  subscribeReactiveCache,
 } from './reactive-cache';
-import updateData from '../devtools';
 
 export const REVALIDATION_CACHE = createReactiveCache<boolean>();
 
 export type RevalidationListener = ReactiveCacheListener<boolean>;
 
-export function addRevalidationListener(
+export function subscribeRevalidation(
   key: string,
   listener: RevalidationListener,
-): void {
-  addReactiveCacheListener(REVALIDATION_CACHE, key, listener);
-}
-
-export function removeRevalidationListener(
-  key: string,
-  listener: RevalidationListener,
-): void {
-  removeReactiveCacheListener(REVALIDATION_CACHE, key, listener);
+): () => void {
+  return subscribeReactiveCache(REVALIDATION_CACHE, key, listener);
 }
 
 export function setRevalidation(
@@ -58,7 +49,6 @@ export function setRevalidation(
   notify = true,
 ): void {
   setReactiveCacheValue(REVALIDATION_CACHE, key, value, notify);
-  updateData(key, 'REVALIDATION', value);
 }
 
 export function getRevalidation(

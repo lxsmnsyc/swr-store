@@ -25,43 +25,29 @@
  * @author Alexis Munsayac <alexis.munsayac@gmail.com>
  * @copyright Alexis Munsayac 2021
  */
-function parseSafe<T>(obj: T) {
-  const getCircularReplacer = () => {
-    const seen = new WeakSet();
-    return (_: string, value: unknown): any => {
-      if (value instanceof Promise) {
-        return '« Promise »';
-      }
-      if (value instanceof Map) {
-        return Array.from(value);
-      }
-      if (value instanceof Set) {
-        return Array.from(value);
-      }
-      if (typeof value === 'function') {
-        return `ƒ ${value.name} () { }`;
-      }
-      if (typeof value === 'object' && value !== null) {
-        if (seen.has(value)) {
-          return '« recursive »';
-        }
-        seen.add(value);
-      }
-      return value;
-    };
-  };
+import superjson from 'superjson';
 
-  return JSON.stringify(obj, getCircularReplacer());
-}
+// function parseSafe<T>(obj: T) {
+//   const getCircularReplacer = (_: string, value: unknown): any => {
+//     if (value instanceof Promise) {
+//       return '« Promise »';
+//     }
+//     if (typeof value === 'function') {
+//       return `ƒ ${value.name} () { }`;
+//     }
+//     return value;
+//   };
 
-export default function updateData<T>(key: string, type: string, data: T): void {
+//   return JSON.stringify(obj, getCircularReplacer());
+// }
+
+export default function updateData<T>(key: string, data: T): void {
   if (process.env.NODE_ENV !== 'production' && typeof document !== 'undefined') {
     document.dispatchEvent(new CustomEvent('__SWR_STORE__', {
-      detail: parseSafe({
+      detail: {
         key,
-        type,
-        data,
-      }),
+        data: superjson.stringify(data),
+      },
     }));
   }
 }

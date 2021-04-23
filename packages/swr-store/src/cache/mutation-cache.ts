@@ -27,12 +27,11 @@
  */
 import updateData from '../devtools';
 import {
-  addReactiveCacheListener,
   createReactiveCache,
   getReactiveCacheListenerSize,
   ReactiveCacheListener,
-  removeReactiveCacheListener,
   setReactiveCacheValue,
+  subscribeReactiveCache,
 } from './reactive-cache';
 
 export interface MutationPending<T> {
@@ -55,24 +54,18 @@ export type MutationResult<T> =
 export interface Mutation<T> {
   result: MutationResult<T>;
   timestamp: number;
+  isValidating: boolean;
 }
 
 export const MUTATION_CACHE = createReactiveCache<Mutation<any>>();
 
 export type MutationListener<T> = ReactiveCacheListener<Mutation<T>>;
 
-export function addMutationListener<T>(
+export function subscribeMutation<T>(
   key: string,
   listener: MutationListener<T>,
-): void {
-  addReactiveCacheListener(MUTATION_CACHE, key, listener);
-}
-
-export function removeMutationListener<T>(
-  key: string,
-  listener: MutationListener<T>,
-): void {
-  removeReactiveCacheListener(MUTATION_CACHE, key, listener);
+): () => void {
+  return subscribeReactiveCache(MUTATION_CACHE, key, listener);
 }
 
 export function setMutation<T>(
@@ -80,7 +73,10 @@ export function setMutation<T>(
   value: Mutation<T>,
 ): void {
   setReactiveCacheValue(MUTATION_CACHE, key, value);
-  updateData(key, 'MUTATION', value);
+  updateData(key, {
+    ...value,
+    listeners: getReactiveCacheListenerSize(MUTATION_CACHE, key),
+  });
 }
 
 export function getMutation<T>(

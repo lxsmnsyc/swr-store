@@ -32,9 +32,8 @@ import {
   setMutation,
 } from './cache/mutation-cache';
 import {
-  addRevalidationListener,
-  removeRevalidationListener,
   setRevalidation,
+  subscribeRevalidation,
 } from './cache/revalidation-cache';
 import DEFAULT_CONFIG from './default-config';
 import {
@@ -100,6 +99,7 @@ export default function createSWRStore<T, P extends any[] = []>(
           status: 'success',
         },
         timestamp,
+        isValidating: false,
       };
 
       if (revalidateOptions.hydrate) {
@@ -195,6 +195,7 @@ export default function createSWRStore<T, P extends any[] = []>(
               status: 'success',
             },
             timestamp: mutation?.timestamp ?? Date.now(),
+            isValidating: false,
           });
         }
       },
@@ -223,6 +224,7 @@ export default function createSWRStore<T, P extends any[] = []>(
               status: 'failure',
             },
             timestamp: mutation?.timestamp ?? Date.now(),
+            isValidating: false,
           });
         }
       },
@@ -238,6 +240,7 @@ export default function createSWRStore<T, P extends any[] = []>(
       // Updating this means that the freshness or the staleness
       // of a mutation resets
       currentMutation.timestamp = timestamp;
+      currentMutation.isValidating = true;
       return currentMutation.result;
     }
 
@@ -245,6 +248,7 @@ export default function createSWRStore<T, P extends any[] = []>(
     setMutation(generatedKey, {
       result,
       timestamp,
+      isValidating: true,
     });
 
     return result;
@@ -285,10 +289,7 @@ export default function createSWRStore<T, P extends any[] = []>(
           shouldRevalidate: flag,
         });
       };
-      addRevalidationListener(generatedKey, innerRevalidate);
-      return () => {
-        removeRevalidationListener(generatedKey, innerRevalidate);
-      };
+      return subscribeRevalidation(generatedKey, innerRevalidate);
     });
 
     // Only register on client-side
