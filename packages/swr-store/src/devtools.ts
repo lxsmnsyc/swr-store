@@ -27,19 +27,20 @@
  */
 import superjson from 'superjson';
 
-// function parseSafe<T>(obj: T) {
-//   const getCircularReplacer = (_: string, value: unknown): any => {
-//     if (value instanceof Promise) {
-//       return '« Promise »';
-//     }
-//     if (typeof value === 'function') {
-//       return `ƒ ${value.name} () { }`;
-//     }
-//     return value;
-//   };
-
-//   return JSON.stringify(obj, getCircularReplacer());
-// }
+superjson.registerCustom<(...args: any[]) => any, string>({
+  isApplicable: (v): v is ((...args: any[]) => any) => typeof v === 'function',
+  serialize: (v) => `ƒ ${v.name} () { }`,
+  deserialize: (v) => {
+    const newFunc = () => { /* noop */ };
+    newFunc.name = v.substring(2, v.length - 7);
+    return newFunc;
+  },
+}, 'function');
+superjson.registerCustom<Promise<any>, string>({
+  isApplicable: (v): v is Promise<any> => v instanceof Promise,
+  serialize: () => '« Promise »',
+  deserialize: () => Promise.resolve(),
+}, 'promise');
 
 export default function updateData<T>(key: string, data: T): void {
   if (process.env.NODE_ENV !== 'production' && typeof document !== 'undefined') {
