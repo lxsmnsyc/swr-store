@@ -25,29 +25,31 @@
  * @author Alexis Munsayac <alexis.munsayac@gmail.com>
  * @copyright Alexis Munsayac 2021
  */
-import superjson from 'superjson';
+import { addTransformer, stringify } from 'ecmason';
 
-superjson.registerCustom<(...args: any[]) => any, string>({
-  isApplicable: (v): v is ((...args: any[]) => any) => typeof v === 'function',
-  serialize: (v) => `ƒ ${v.name} () { }`,
+addTransformer<Promise<any>, null>('object', {
+  tag: 'PROMISE',
+  check: (value): value is Promise<any> => value instanceof Promise,
+  serialize: () => null,
+  deserialize: () => Promise.resolve(),
+});
+addTransformer<(...args: any[]) => any, string>('primitive', {
+  tag: 'FUNCTION',
+  check: (v): v is ((...args: any[]) => any) => typeof v === 'function',
+  serialize: (v) => v.name,
   deserialize: (v) => {
     const newFunc = () => { /* noop */ };
-    newFunc.name = v.substring(2, v.length - 7);
+    newFunc.name = v;
     return newFunc;
   },
-}, 'function');
-superjson.registerCustom<Promise<any>, string>({
-  isApplicable: (v): v is Promise<any> => v instanceof Promise,
-  serialize: () => '« Promise »',
-  deserialize: () => Promise.resolve(),
-}, 'promise');
+});
 
 export default function updateData<T>(key: string, data: T): void {
   if (process.env.NODE_ENV !== 'production' && typeof document !== 'undefined') {
     document.dispatchEvent(new CustomEvent('__SWR_STORE__', {
       detail: {
         key,
-        data: superjson.stringify(data),
+        data: stringify(data),
       },
     }));
   }

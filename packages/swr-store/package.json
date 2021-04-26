@@ -53,6 +53,6 @@
   "private": false,
   "dependencies": {
     "dequal": "^2.0.2",
-    "superjson": "^1.7.4"
+    "ecmason": "^0.1.3"
   }
 }
