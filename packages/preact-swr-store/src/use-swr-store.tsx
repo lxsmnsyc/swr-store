@@ -28,7 +28,7 @@
 import { useDebugValue } from 'preact/hooks';
 import { SWRStore, MutationResult } from 'swr-store';
 import {
-  useMemoCondition,
+  useConditionalMemo,
 } from '@lyonph/preact-hooks';
 import {
   createStoreAdapter,
@@ -86,7 +86,7 @@ function useSWRStore<T, P extends any[] = []>(
     suspense: false,
   },
 ): MutationResult<T> | T {
-  const sub = useMemoCondition(
+  const sub = useConditionalMemo(
     (): StoreAdapter<MutationResult<T>> => createStoreAdapter({
       read: () => store.get(args, {
         shouldRevalidate,
