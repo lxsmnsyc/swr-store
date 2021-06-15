@@ -5,6 +5,7 @@ import React, {
   SetStateAction,
   Suspense,
   useContext,
+  useRef,
   useState,
 } from 'react';
 import { createSWRStore } from 'swr-store';
@@ -64,17 +65,22 @@ function Trigger(): JSX.Element {
 function SetBreed(): JSX.Element {
   const [state, setState] = useContext(Breed);
 
+  const inputRef = useRef<HTMLInputElement>(null);
+
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        setState(event.target.breed.value);
+        if (inputRef.current) {
+          setState(inputRef.current.value);
+        }
       }}
     >
       <button type="submit">Set Breed</button>
       <input
         type="text"
         name="breed"
+        ref={inputRef}
         defaultValue={state}
       />
     </form>

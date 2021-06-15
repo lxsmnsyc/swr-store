@@ -7,6 +7,7 @@ import {
   StateUpdater,
   Suspense,
   useState,
+  useRef,
 } from 'preact/compat';
 import { createSWRStore } from 'swr-store';
 import { SWRStoreRoot, useSWRStore } from 'preact-swr-store';
@@ -65,11 +66,15 @@ function Trigger(): JSX.Element {
 function SetBreed(): JSX.Element {
   const [state, setState] = useContext(Breed);
 
+  const inputRef = useRef<HTMLInputElement>(null);
+
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        setState(event.target.breed.value);
+        if (inputRef.current) {
+          setState(inputRef.current.value);
+        }
       }}
     >
       <button type="submit">Set Breed</button>
@@ -77,6 +82,7 @@ function SetBreed(): JSX.Element {
         type="text"
         name="breed"
         value={state}
+        ref={inputRef}
       />
     </form>
   );
