@@ -24,14 +24,14 @@
     "eslint": "^7.28.0",
     "eslint-config-lxsmnsyc": "^0.2.1",
     "preact": "^10.5.13",
-    "pridepack": "^0.9.3",
+    "pridepack": "^0.10.0",
     "swr-store": "0.9.3",
     "tslib": "^2.3.0",
     "typescript": "^4.3.2"
   },
   "peerDependencies": {
     "preact": "^10.0.0",
-    "swr-store": "^0.0.0"
+    "swr-store": "^0.9.0"
   },
   "scripts": {
     "prepublish": "pridepack clean && pridepack build",
@@ -43,8 +43,8 @@
     "watch": "pridepack watch"
   },
   "dependencies": {
-    "@lyonph/preact-hooks": "^0.5.0",
-    "preact-store-adapter": "^0.4.3"
+    "@lyonph/preact-hooks": "^0.5.1",
+    "preact-store-adapter": "^0.4.4"
   },
   "description": "Preact bindings for swr-store",
   "author": "Alexis Munsayac",
