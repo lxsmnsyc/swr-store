@@ -8,6 +8,8 @@ module.exports = {
   },
   "rules": {
     "@typescript-eslint/no-unsafe-assignment": "off",
-    "@typescript-eslint/no-explicit-any": "off"
+    "@typescript-eslint/no-explicit-any": "off",
+    "no-restricted-syntax": "off",
+    "prefer-object-spread": "off"
   }
 };
