@@ -90,9 +90,9 @@ export function setReactiveCacheValue<T>(
       subscribers = new Set();
       cache.subscribers.set(key, subscribers);
     }
-    subscribers.forEach((listener) => {
+    for (const listener of subscribers.keys()) {
       listener(value);
-    });
+    }
   }
 }
 

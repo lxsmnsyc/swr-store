@@ -73,10 +73,9 @@ export function setMutation<T>(
   value: Mutation<T>,
 ): void {
   setReactiveCacheValue(MUTATION_CACHE, key, value);
-  updateData(key, {
-    ...value,
+  updateData(key, Object.assign({}, value, {
     listeners: getReactiveCacheListenerSize(MUTATION_CACHE, key),
-  });
+  }));
 }
 
 export function getMutation<T>(

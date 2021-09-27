@@ -27,41 +27,42 @@
  */
 import { addTransformer, stringify, withRecursionTracker } from 'ecmason';
 
-addTransformer<Promise<any>, null>('object', {
-  tag: 'PROMISE',
-  check: (value): value is Promise<any> => value instanceof Promise,
-  serialize: () => null,
-  deserialize: () => Promise.resolve(),
-});
-addTransformer<(...args: any[]) => any, string>('primitive', {
-  tag: 'FUNCTION',
-  check: (v): v is ((...args: any[]) => any) => typeof v === 'function',
-  serialize: (v) => `ƒ ${v.name} () { }`,
-  deserialize: (v) => {
-    const newFunc = () => { /* noop */ };
-    newFunc.name = v;
-    return newFunc;
-  },
-});
-
 interface ErrorECMASon {
   name: string;
   message: string;
 }
 
-addTransformer('object', withRecursionTracker<Error, ErrorECMASon>({
-  tag: 'ERROR',
-  check: (v): v is Error => v instanceof Error,
-  serialize: (v) => ({
-    name: v.name,
-    message: v.message,
-  }),
-  deserialize: (v) => {
-    const error = new Error(v.message);
-    error.name = v.name;
-    return error;
-  },
-}));
+if (process.env.NODE_ENV !== 'production') {
+  addTransformer<Promise<any>, null>('object', {
+    tag: 'PROMISE',
+    check: (value): value is Promise<any> => value instanceof Promise,
+    serialize: () => null,
+    deserialize: () => Promise.resolve(),
+  });
+  addTransformer<(...args: any[]) => any, string>('primitive', {
+    tag: 'FUNCTION',
+    check: (v): v is ((...args: any[]) => any) => typeof v === 'function',
+    serialize: (v) => `ƒ ${v.name} () { }`,
+    deserialize: (v) => {
+      const newFunc = () => { /* noop */ };
+      newFunc.name = v;
+      return newFunc;
+    },
+  });
+  addTransformer('object', withRecursionTracker<Error, ErrorECMASon>({
+    tag: 'ERROR',
+    check: (v): v is Error => v instanceof Error,
+    serialize: (v) => ({
+      name: v.name,
+      message: v.message,
+    }),
+    deserialize: (v) => {
+      const error = new Error(v.message);
+      error.name = v.name;
+      return error;
+    },
+  }));
+}
 
 export default function updateData<T>(key: string, data: T): void {
   if (process.env.NODE_ENV !== 'production' && typeof document !== 'undefined') {

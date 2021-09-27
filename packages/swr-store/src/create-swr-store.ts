@@ -42,7 +42,6 @@ import {
   trigger,
 } from './global';
 import IS_CLIENT from './is-client';
-import NEVER_PROMISE from './never-promise';
 import retry, { Retry } from './retry';
 import {
   SWRFullOptions,
@@ -62,13 +61,12 @@ function getIndex() {
 
 const retries = new Map<string, Retry<any>>();
 
+const { assign } = Object;
+
 export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
 ): SWRStore<T, P> {
-  const fullOpts: SWRFullOptions<T, P> = {
-    ...DEFAULT_CONFIG,
-    ...options,
-  };
+  const fullOpts: SWRFullOptions<T, P> = assign({}, DEFAULT_CONFIG, options);
 
   // This function revalidates the mutation cache
   // through reactive process
@@ -78,10 +76,11 @@ export default function createSWRStore<T, P extends any[] = []>(
       initialData: fullOpts.initialData,
       hydrate: false,
     };
-    const revalidateOptions: SWRGetOptions<T> = {
-      ...defaultRevalidateOptions,
-      ...opts,
-    };
+    const revalidateOptions: SWRGetOptions<T> = assign(
+      {},
+      defaultRevalidateOptions,
+      opts,
+    );
     // Parse key
     const generatedKey = fullOpts.key(...args);
 
@@ -105,19 +104,6 @@ export default function createSWRStore<T, P extends any[] = []>(
       if (revalidateOptions.hydrate) {
         setMutation(generatedKey, currentMutation);
       }
-    }
-
-    // Opt-out of fetching process
-    // if running on server
-    if (!IS_CLIENT) {
-      // If there is no mutation, throw an error
-      if (!currentMutation) {
-        return {
-          status: 'pending',
-          data: NEVER_PROMISE as Promise<T>,
-        };
-      }
-      return currentMutation.result;
     }
 
     if (currentMutation) {
@@ -423,10 +409,13 @@ export default function createSWRStore<T, P extends any[] = []>(
 
   const lazyUnregister = (generatedKey: string) => {
     if (getMutationListenerSize(generatedKey) === 0) {
-      cleanups.get(generatedKey)?.forEach((cleanup) => {
-        cleanup();
-      });
-      cleanups.delete(generatedKey);
+      const actualCleanups = cleanups.get(generatedKey);
+      if (actualCleanups) {
+        for (let i = 0, len = actualCleanups.length; i < len; i += 1) {
+          actualCleanups[i]();
+        }
+        cleanups.delete(generatedKey);
+      }
     }
   };
 
