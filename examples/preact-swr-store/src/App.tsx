@@ -1,4 +1,3 @@
-/** @jsx h */
 import 'preact/debug';
 import { FunctionComponent } from 'preact';
 import {
