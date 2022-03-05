@@ -1,17 +1,23 @@
-import { createResource, Resource } from 'solid-js';
-import { SWRStore } from 'swr-store';
+import {
+  createEffect,
+  createResource,
+  createSignal,
+  onCleanup,
+  Resource,
+} from 'solid-js';
+import { MutationResult, SWRStore } from 'swr-store';
 
 interface UseSWRStoreOptions<T> {
   initialData?: T;
   shouldRevalidate?: boolean;
 }
 
-function useSWRStore<T, P extends any[] = []>(
+export function useSWRStore<T, P extends any[] = []>(
   store: SWRStore<T, P>,
   args: () => P,
   options: UseSWRStoreOptions<T>,
 ): Resource<T | undefined> {
-  const [resource] = createResource(
+  const [resource, { mutate }] = createResource(
     () => ({
       args: args(),
       options: {
@@ -32,7 +38,45 @@ function useSWRStore<T, P extends any[] = []>(
     },
   );
 
+  createEffect(() => {
+    const currentArgs = args();
+    onCleanup(store.subscribe(currentArgs, () => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      mutate(() => {
+        const result = store.get(currentArgs, {
+          shouldRevalidate: options.shouldRevalidate,
+          initialData: options.initialData,
+        });
+        if (result.status === 'failure') {
+          throw result.data;
+        }
+        return result.data;
+      });
+    }));
+  });
+
   return resource as Resource<T | undefined>;
 }
 
-export default useSWRStore;
+export function useSWRStoreSuspenseless<T, P extends any[] = []>(
+  store: SWRStore<T, P>,
+  args: () => P,
+  options: UseSWRStoreOptions<T>,
+): () => MutationResult<T> {
+  const [result, setResult] = createSignal(store.get(args(), {
+    shouldRevalidate: options.shouldRevalidate,
+    initialData: options.initialData,
+  }));
+
+  createEffect(() => {
+    const currentArgs = args();
+    onCleanup(store.subscribe(currentArgs, () => {
+      setResult(() => store.get(currentArgs, {
+        shouldRevalidate: options.shouldRevalidate,
+        initialData: options.initialData,
+      }));
+    }));
+  });
+
+  return result;
+}
