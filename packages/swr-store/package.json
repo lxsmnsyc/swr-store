@@ -44,7 +44,8 @@
   },
   "license": "MIT",
   "keywords": [
-    "pridepack"
+    "pridepack",
+    "swr"
   ],
   "name": "swr-store",
   "devDependencies": {
