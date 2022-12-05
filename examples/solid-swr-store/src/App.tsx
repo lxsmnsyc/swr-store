@@ -35,7 +35,7 @@ interface BreedContext {
   value: string;
 }
 
-const Breed = createContext<BreedContext>({ value: 'shiba'});
+const Breed = createContext<BreedContext>({ value: 'shiba' });
 
 function DogImage(): JSX.Element {
   const ctx = useContext(Breed);
@@ -43,7 +43,7 @@ function DogImage(): JSX.Element {
   const data = useSWRStore(dogAPI, (): [string] => [ctx.value], {});
 
   return (
-    <Show when={data()}>
+    <Show when={data()} keyed>
       {(value) => <img src={value.message} alt={value.message} />}
     </Show>
   );
@@ -88,7 +88,7 @@ function SetBreed(): JSX.Element {
   );
 }
 
-function BreedContext({ children }: { children: JSX.Element}) {
+function BreedContext(props: { children: JSX.Element}) {
   const [breed, setBreed] = createSignal('shiba');
 
   return (
@@ -98,12 +98,11 @@ function BreedContext({ children }: { children: JSX.Element}) {
           return breed();
         },
         set value(newValue: string) {
-          setBreed(newValue);
-          console.log(newValue);
+          setBreed(() => newValue);
         },
       }}
     >
-      {children}
+      {props.children}
     </Breed.Provider>
   );
 }
