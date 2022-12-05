@@ -7,7 +7,7 @@
     "serve": "vite preview"
   },
   "dependencies": {
-    "solid-js": "^1.4.7",
+    "solid-js": "^1.6.2",
     "solid-swr-store": "0.10.4",
     "swr-store": "0.10.4"
   },
