@@ -1,16 +1,17 @@
 {
   "version": "0.10.4",
-  "types": "dist/types/index.d.ts",
-  "main": "dist/cjs/production/index.js",
-  "module": "dist/esm/production/index.js",
+  "type": "module",
+  "types": "./dist/types/index.d.ts",
+  "main": "./dist/cjs/production/index.cjs",
+  "module": "./dist/esm/production/index.mjs",
   "exports": {
     ".": {
       "development": {
-        "require": "./dist/cjs/development/index.js",
-        "import": "./dist/esm/development/index.js"
+        "require": "./dist/cjs/development/index.cjs",
+        "import": "./dist/esm/development/index.mjs"
       },
-      "require": "./dist/cjs/production/index.js",
-      "import": "./dist/esm/production/index.js",
+      "require": "./dist/cjs/production/index.cjs",
+      "import": "./dist/esm/production/index.mjs",
       "types": "./dist/types/index.d.ts"
     }
   },
@@ -64,10 +65,6 @@
     "access": "public"
   },
   "typesVersions": {
-    "*": {
-      "*": [
-        "./dist/types/index.d.ts"
-      ]
-    }
+    "*": {}
   }
 }

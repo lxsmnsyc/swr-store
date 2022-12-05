@@ -158,14 +158,14 @@ importers:
   packages/swr-store:
     specifiers:
       '@types/node': ^18.11.10
-      dequal: ^2.0.2
+      dequal: ^2.0.3
       eslint: ^8.29.0
       eslint-config-lxsmnsyc: ^0.4.8
       pridepack: ^2.3.1
       tslib: ^2.4.1
       typescript: ^4.9.3
     dependencies:
-      dequal: 2.0.2
+      dequal: 2.0.3
     devDependencies:
       '@types/node': 18.11.10
       eslint: 8.29.0
@@ -3394,8 +3394,8 @@ packages:
     resolution: {integrity: sha512-xmHIy4F3scKVwMsQ4WnVaS8bHOx0DmVwRywosKhaILI0ywMDWPtBSku2HNxRvF7jtwDRsoEwYQSfbxj8b7RlJQ==}
     dev: true
 
-  /dequal/2.0.2:
-    resolution: {integrity: sha512-q9K8BlJVxK7hQYqa6XISGmBZbtQQWVXSrRrWreHC94rMt1QL/Impruc+7p2CYSYuVIUr+YCt6hjrs1kkdJRTug==}
+  /dequal/2.0.3:
+    resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
     engines: {node: '>=6'}
     dev: false
 
