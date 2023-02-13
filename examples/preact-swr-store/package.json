@@ -1,6 +1,6 @@
 {
   "name": "preact-scoped-model-vite",
-  "version": "0.10.4",
+  "version": "0.10.5",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "preact": "^10.5.14",
-    "preact-swr-store": "0.10.4",
-    "swr-store": "0.10.4"
+    "preact-swr-store": "0.10.5",
+    "swr-store": "0.10.5"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.1.7",
