@@ -7,7 +7,7 @@ import {
 } from 'solid-js';
 import { MutationResult, SWRStore } from 'swr-store';
 
-interface UseSWRStoreOptions<T> {
+export interface UseSWRStoreOptions<T> {
   initialData?: T;
   shouldRevalidate?: boolean;
 }

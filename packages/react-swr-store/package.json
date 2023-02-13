@@ -28,19 +28,19 @@
   ],
   "name": "react-swr-store",
   "devDependencies": {
-    "@types/node": "^18.11.10",
+    "@types/node": "^18.13.0",
     "@types/react": "^17.0.19",
-    "eslint": "^8.29.0",
+    "eslint": "^8.33.0",
     "eslint-config-lxsmnsyc": "^0.4.8",
-    "pridepack": "^2.3.1",
+    "pridepack": "^2.4.0",
     "react": "^17.0.2",
     "swr-store": "0.10.4",
-    "tslib": "^2.4.1",
-    "typescript": "^4.9.3"
+    "tslib": "^2.5.0",
+    "typescript": "^4.9.5"
   },
   "peerDependencies": {
     "react": "^16.8 || ^17.0",
-    "swr-store": "^0.9"
+    "swr-store": "^0.10"
   },
   "scripts": {
     "prepublish": "pridepack clean && pridepack build",
