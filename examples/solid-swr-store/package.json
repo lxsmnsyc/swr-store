@@ -1,6 +1,6 @@
 {
   "name": "solid-swr-store-vite",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "solid-js": "^1.6.2",
-    "solid-swr-store": "0.10.6",
+    "solid-swr-store": "0.10.7",
     "swr-store": "0.10.6"
   },
   "devDependencies": {
