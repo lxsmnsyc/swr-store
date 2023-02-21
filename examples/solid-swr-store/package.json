@@ -1,6 +1,6 @@
 {
   "name": "solid-swr-store-vite",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "solid-js": "^1.6.2",
-    "solid-swr-store": "0.10.5",
-    "swr-store": "0.10.5"
+    "solid-swr-store": "0.10.6",
+    "swr-store": "0.10.6"
   },
   "devDependencies": {
     "eslint": "^8.33.0",
