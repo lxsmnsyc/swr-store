@@ -10,6 +10,7 @@ import { MutationResult, SWRStore } from 'swr-store';
 export interface UseSWRStoreOptions<T> {
   initialData?: T;
   shouldRevalidate?: boolean;
+  hydrate?: boolean;
 }
 
 export function useSWRStoreSuspenseless<T, P extends any[] = []>(
@@ -20,6 +21,7 @@ export function useSWRStoreSuspenseless<T, P extends any[] = []>(
   const [result, setResult] = createSignal(store.get(args(), {
     shouldRevalidate: options.shouldRevalidate,
     initialData: options.initialData,
+    hydrate: options.hydrate,
   }));
 
   createEffect(() => {
@@ -48,9 +50,10 @@ export function useSWRStore<T, P extends any[] = []>(
       }
       return result.data;
     },
-    {
+    'initialData' in options ? {
       initialValue: options.initialData,
-    },
+      ssrLoadFrom: 'initial',
+    } : {},
   );
   return resource as Resource<T | undefined>;
 }
