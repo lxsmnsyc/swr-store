@@ -27,5 +27,9 @@ export function setRevalidation(
 export function getRevalidation(
   key: string,
 ): boolean | undefined {
-  return REVALIDATION_CACHE.cache.get(key)?.value;
+  const result = REVALIDATION_CACHE.cache.get(key);
+  if (result) {
+    return result.value;
+  }
+  return undefined;
 }

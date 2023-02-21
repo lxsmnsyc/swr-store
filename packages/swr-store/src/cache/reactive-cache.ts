@@ -44,7 +44,9 @@ export function subscribeReactiveCache<T>(
   subscribers.add(listener);
 
   return () => {
-    subscribers?.delete(listener);
+    if (subscribers) {
+      subscribers.delete(listener);
+    }
   };
 }
 
@@ -73,5 +75,9 @@ export function getReactiveCacheListenerSize<T>(
   cache: ReactiveCache<T>,
   key: string,
 ): number {
-  return cache.subscribers.get(key)?.size ?? 0;
+  const result = cache.subscribers.get(key);
+  if (result) {
+    return result.size;
+  }
+  return 0;
 }

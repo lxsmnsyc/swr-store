@@ -50,7 +50,11 @@ export function setMutation<T>(
 export function getMutation<T>(
   key: string,
 ): Mutation<T> | undefined {
-  return MUTATION_CACHE.cache.get(key)?.value;
+  const result = MUTATION_CACHE.cache.get(key);
+  if (result) {
+    return result.value;
+  }
+  return undefined;
 }
 
 export function getMutationListenerSize(
