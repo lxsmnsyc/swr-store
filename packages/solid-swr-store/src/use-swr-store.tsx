@@ -28,7 +28,7 @@ export function useSWRStoreSuspenseless<T, P extends any[] = []>(
     const currentArgs = args();
     onCleanup(store.subscribe(currentArgs, () => {
       setResult(() => store.get(currentArgs, {
-        shouldRevalidate: options.shouldRevalidate,
+        shouldRevalidate: false,
       }));
     }));
   });
