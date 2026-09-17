@@ -1,32 +1,16 @@
-import {
-  getMutation,
-  getMutationListenerSize,
-  MutationPending,
-  MutationResult,
-  setMutation,
-} from './cache/mutation-cache';
-import {
-  setRevalidation,
-  subscribeRevalidation,
-} from './cache/revalidation-cache';
+import type { MutationPending, MutationResult } from './cache/mutation-cache';
+import { getMutation, getMutationListenerSize, setMutation } from './cache/mutation-cache';
+import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
 import DEFAULT_CONFIG from './default-config';
-import {
-  mutate,
-  subscribe,
-  trigger,
-} from './global';
+import { mutate, subscribe, trigger } from './global';
 import IS_CLIENT from './is-client';
-import retry, { Retry } from './retry';
-import {
-  SWRFullOptions,
-  SWRGetOptions,
-  SWRStore,
-  SWRStoreOptions,
-} from './types';
+import type { Retry } from './retry';
+import retry from './retry';
+import type { SWRFullOptions, SWRGetOptions, SWRStore, SWRStoreOptions } from './types';
 
 let index = 0;
 
-function getIndex() {
+function getIndex(): number {
   const current = index;
   index += 1;
   return current;
@@ -46,11 +30,7 @@ function revalidate<T, P extends any[] = []>(
     initialData: fullOpts.initialData,
     hydrate: false,
   };
-  const revalidateOptions: SWRGetOptions<T> = assign(
-    {},
-    defaultRevalidateOptions,
-    opts,
-  );
+  const revalidateOptions: SWRGetOptions<T> = assign({}, defaultRevalidateOptions, opts);
   // Parse key
   const generatedKey = fullOpts.key(...args);
 
@@ -98,7 +78,7 @@ function revalidate<T, P extends any[] = []>(
   }
 
   // Perform fetch
-  const pendingRetry = retry(() => fullOpts.get(...args), {
+  const pendingRetry = retry(async () => fullOpts.get(...args), {
     count: fullOpts.maxRetryCount,
     interval: fullOpts.maxRetryInterval,
   });
@@ -134,10 +114,7 @@ function revalidate<T, P extends any[] = []>(
         // Case 3: There's a stale data
         if (mutation.result.status === 'success') {
           // Deep compare stale data
-          return !fullOpts.compare(
-            mutation.result.data,
-            data,
-          );
+          return !fullOpts.compare(mutation.result.data, data);
         }
 
         // Always update
@@ -150,12 +127,14 @@ function revalidate<T, P extends any[] = []>(
             data,
             status: 'success',
           },
-          timestamp: (mutation && mutation.timestamp) ? mutation.timestamp : Date.now(),
+          // A zero timestamp counts as missing.
+          // oxlint-disable-next-line typescript/prefer-nullish-coalescing
+          timestamp: mutation?.timestamp || Date.now(),
           isValidating: false,
         });
       }
     },
-    (data) => {
+    (data: unknown) => {
       const mutation = getMutation<T>(generatedKey);
 
       const shouldUpdate = (): boolean => {
@@ -179,7 +158,9 @@ function revalidate<T, P extends any[] = []>(
             data,
             status: 'failure',
           },
-          timestamp: (mutation && mutation.timestamp) ? mutation.timestamp : Date.now(),
+          // A zero timestamp counts as missing.
+          // oxlint-disable-next-line typescript/prefer-nullish-coalescing
+          timestamp: mutation?.timestamp || Date.now(),
           isValidating: false,
         });
       }
@@ -190,8 +171,8 @@ function revalidate<T, P extends any[] = []>(
   // and mutation is stale
   // update timestamp and return
   if (
-    currentMutation
-    && currentMutation.timestamp + fullOpts.freshAge + fullOpts.staleAge > timestamp
+    currentMutation &&
+    currentMutation.timestamp + fullOpts.freshAge + fullOpts.staleAge > timestamp
   ) {
     // Updating this means that the freshness or the staleness
     // of a mutation resets
@@ -214,7 +195,6 @@ type Cleanup = () => void;
 type Cleanups = Cleanup[];
 type Subscribe = () => Cleanup;
 
-
 // This lazy registration allows manageable
 // global source subscriptions by performing
 // reference-counting.
@@ -223,7 +203,7 @@ function lazyRegister<T, P extends any[] = []>(
   generatedKey: string,
   fullOpts: SWRFullOptions<T, P>,
   args: P,
-) {
+): void {
   // If there are listeners, it means
   // that the store has already made subscriptions
   if (getMutationListenerSize(generatedKey) > 0) {
@@ -233,15 +213,15 @@ function lazyRegister<T, P extends any[] = []>(
   // Create cleanup stack
   const currentCleanups: Cleanups = [];
 
-  const subscription = (sub: Subscribe) => {
+  const subscription = (sub: Subscribe): void => {
     currentCleanups.push(sub());
   };
 
-  const onRevalidate = () => {
+  const onRevalidate = (): void => {
     setRevalidation(generatedKey, true);
   };
   subscription(() => {
-    const innerRevalidate = (flag: boolean) => {
+    const innerRevalidate = (flag: boolean): void => {
       revalidate(fullOpts, args, {
         shouldRevalidate: flag,
       });
@@ -257,11 +237,11 @@ function lazyRegister<T, P extends any[] = []>(
         subscription(() => {
           let interval: undefined | number;
 
-          const enter = () => {
+          const enter = (): void => {
             window.clearInterval(interval);
             interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
           };
-          const exit = () => {
+          const exit = (): void => {
             window.clearInterval(interval);
             interval = undefined;
           };
@@ -280,11 +260,11 @@ function lazyRegister<T, P extends any[] = []>(
         subscription(() => {
           let interval: undefined | number;
 
-          const enter = () => {
+          const enter = (): void => {
             window.clearInterval(interval);
             interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
           };
-          const exit = () => {
+          const exit = (): void => {
             window.clearInterval(interval);
             interval = undefined;
           };
@@ -303,7 +283,7 @@ function lazyRegister<T, P extends any[] = []>(
         subscription(() => {
           let interval: undefined | number;
 
-          const onVisibility = () => {
+          const onVisibility = (): void => {
             window.clearInterval(interval);
             if (document.visibilityState === 'visible') {
               interval = undefined;
@@ -321,9 +301,7 @@ function lazyRegister<T, P extends any[] = []>(
         });
       }
       if (
-        !(fullOpts.refreshWhenHidden
-        || fullOpts.refreshWhenBlurred
-        || fullOpts.refreshWhenOffline)
+        !(fullOpts.refreshWhenHidden || fullOpts.refreshWhenBlurred || fullOpts.refreshWhenOffline)
       ) {
         subscription(() => {
           const interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
@@ -360,7 +338,7 @@ function lazyRegister<T, P extends any[] = []>(
     // Registers a visibility change event for revalidation.
     if (fullOpts.revalidateOnVisibility) {
       subscription(() => {
-        const onVisible = () => {
+        const onVisible = (): void => {
           if (document.visibilityState === 'visible') {
             onRevalidate();
           }
@@ -378,10 +356,7 @@ function lazyRegister<T, P extends any[] = []>(
   cleanups.set(generatedKey, currentCleanups);
 }
 
-function lazyUnregister(
-  cleanups: Map<string, Cleanups>,
-  generatedKey: string,
-) {
+function lazyUnregister(cleanups: Map<string, Cleanups>, generatedKey: string): void {
   if (getMutationListenerSize(generatedKey) === 0) {
     const actualCleanups = cleanups.get(generatedKey);
     if (actualCleanups) {

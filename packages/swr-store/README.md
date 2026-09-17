@@ -2,17 +2,19 @@
 
 > Reactive SWR stores for data-fetching.
 
-[![NPM](https://img.shields.io/npm/v/swr-store.svg)](https://www.npmjs.com/package/swr-store) [![JavaScript Style Guide](https://badgen.net/badge/code%20style/airbnb/ff5a5f?icon=airbnb)](https://github.com/airbnb/javascript)
+[![NPM](https://img.shields.io/npm/v/swr-store.svg)](https://www.npmjs.com/package/swr-store)
 
 ## Install
 
 ```bash
-npm install --save swr-store
+npm install swr-store
 ```
 
 ```bash
-yarn add swr-store
+pnpm add swr-store
 ```
+
+Bindings for React, Preact and Solid ship in the same package. See [Bindings](#bindings).
 
 ## Usage
 
@@ -68,12 +70,13 @@ const store = createSWRStore({
   // Only select the key
   // note that keys are globally shared.
   key: (id) => id,
-  
+
   // An auth-based endpoint
-  get: (id, token) => getUserPrivateData({
-    userId: id,
-    token,
-  }),
+  get: (id, token) =>
+    getUserPrivateData({
+      userId: id,
+      token,
+    }),
 });
 
 // ...
@@ -85,7 +88,6 @@ const privateData = store.get(userId, userToken);
 SWR store allows subscriptions to subscribe for cache updates. Subscribing returns a callback that allows unsubscribing to the cache updates.
 
 ```ts
-
 // Local subscription
 const unsubscribe = userDetails.subscribe([userId], (result) => {
   if (result.status === 'pending') {
@@ -172,7 +174,7 @@ import { trigger, mutate } from 'swr-store';
 const userDetails = createSWRStore({
   // Transform id into a cache key
   key: (id) => `/user/${id}`,
-  
+
   // An auth-based endpoint
   get: (id) => getUserDetails(id),
 });
@@ -202,7 +204,7 @@ SWR stores can be manually revalidated by calling `store.trigger` or `store.muta
 // Local revalidation
 userDetails.trigger([userId]);
 
-// is the same as 
+// is the same as
 trigger(`/user/${userId}`);
 
 // Since userDetails yields the same key format.
@@ -270,6 +272,115 @@ SWR stores, by default, deeply compare success data in between cache updates. Th
 ### Retries
 
 SWR stores implements the exponential backoff algorithm for retry intervals whenever a request fails. By default, SWR stores retry indefinitely until the request resolves successfully at a maximum interval of `5000ms`. Limit can be defined through `options.maxRetryCount` and the interval can be overriden with `options.maxRetryInterval`.
+
+## Bindings
+
+Each binding is a separate entry point with an optional peer dependency.
+
+| Import             | Peer dependency         |
+| ------------------ | ----------------------- |
+| `swr-store/react`  | `react` 18 or 19        |
+| `swr-store/preact` | `preact` 10.11 or later |
+| `swr-store/solid`  | `solid-js` 1.6 or later |
+
+### React and Preact
+
+```tsx
+import { Suspense } from 'react';
+import { createSWRStore } from 'swr-store';
+import { useSWRStore } from 'swr-store/react';
+
+const dogAPI = createSWRStore<APIResult, [string]>({
+  key: (breed) => breed,
+  get: async (breed) => {
+    const response = await fetch(`https://dog.ceo/api/breed/${breed}/images/random`);
+    return (await response.json()) as APIResult;
+  },
+  revalidateOnFocus: true,
+});
+
+function DogImage() {
+  const data = useSWRStore(dogAPI, ['shiba'], { suspense: true });
+
+  return <img src={data.message} alt={data.message} />;
+}
+
+function DogImageWithoutSuspense() {
+  const result = useSWRStore(dogAPI, ['shiba']);
+
+  if (result.status === 'pending') {
+    return <h1>Loading...</h1>;
+  }
+  if (result.status === 'failure') {
+    return <h1>Something went wrong.</h1>;
+  }
+  return <img src={result.data.message} alt={result.data.message} />;
+}
+
+export default function App() {
+  return (
+    <Suspense fallback={<h1>Loading...</h1>}>
+      <DogImage />
+    </Suspense>
+  );
+}
+```
+
+For Preact, import from `swr-store/preact` and take `Suspense` from `preact/compat`.
+
+`useSWRStore(store, args, options)` subscribes to the store with the given arguments. `options` has these properties:
+
+- `suspense`: When `true`, the component suspends while the result is pending, throws the error on failure, and returns the data on success. Otherwise the hook returns the result. Defaults to `false`.
+- `initialData`: Used when the store has no cache for the arguments. Defaults to the store's `initialData`.
+- `shouldRevalidate`: When `true`, reading the store goes through revalidation. Defaults to `true`.
+
+`SWRStoreRoot` is still exported but is deprecated. The hook no longer needs it, so it only renders its children.
+
+### Solid
+
+```tsx
+import { Show, Suspense } from 'solid-js';
+import { createSWRStore } from 'swr-store';
+import { useSWRStore, useSWRStoreSuspenseless } from 'swr-store/solid';
+
+function DogImage() {
+  const data = useSWRStore(dogAPI, () => ['shiba']);
+
+  return (
+    <Show when={data()} keyed>
+      {(value) => <img src={value.message} alt={value.message} />}
+    </Show>
+  );
+}
+
+function DogImageSuspenseless() {
+  const result = useSWRStoreSuspenseless(dogAPI, () => ['shiba']);
+
+  return (
+    <Show
+      when={result().status === 'success' && result().data}
+      fallback={<h1>Loading...</h1>}
+      keyed
+    >
+      {(value) => <img src={value.message} alt={value.message} />}
+    </Show>
+  );
+}
+
+export default function App() {
+  return (
+    <Suspense fallback={<h1>Loading...</h1>}>
+      <DogImage />
+      <DogImageSuspenseless />
+    </Suspense>
+  );
+}
+```
+
+- `useSWRStore(store, args, options)` returns a resource with the data. `args` is a function, so the hook follows reactive arguments.
+- `useSWRStoreSuspenseless(store, args, options)` returns a signal with the result and does not suspend.
+
+`options` accepts `initialData`, `shouldRevalidate` and `hydrate`, with the same meaning as in `store.get`.
 
 ## License
 

@@ -1,7 +1,7 @@
 export { mutate, trigger, subscribe } from './global';
 export { default as createSWRStore } from './create-swr-store';
-export * from './types';
-export {
+export type * from './types';
+export type {
   MutationPending,
   MutationSuccess,
   MutationFailure,

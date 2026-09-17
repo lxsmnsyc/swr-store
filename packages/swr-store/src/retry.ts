@@ -36,16 +36,16 @@ function createResolvable<T>(): Resolvable<T> {
 
 export default function retry<T>(supplier: () => Promise<T>, options: RetryOptions): Retry<T> {
   let alive = true;
-  let schedule: number;
+  let schedule: ReturnType<typeof setTimeout> | undefined;
 
   const resolvable = createResolvable<T>();
 
-  const backoff = (timeout = 10, count = 0) => {
-    const handle = (reason: any) => {
+  const backoff = (timeout = 10, count = 0): void => {
+    const handle = (reason: unknown): void => {
       if (!alive || (typeof options.count === 'number' && options.count <= count)) {
         resolvable.reject(reason);
       } else {
-        schedule = window.setTimeout(() => {
+        schedule = setTimeout(() => {
           backoff(Math.max(10, Math.min(options.interval, timeout * 2)), count + 1);
         }, timeout);
       }

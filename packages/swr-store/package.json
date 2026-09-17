@@ -1,68 +1,101 @@
 {
+  "name": "swr-store",
   "version": "0.10.6",
-  "type": "module",
-  "types": "./dist/types/index.d.ts",
-  "main": "./dist/cjs/production/index.cjs",
-  "module": "./dist/esm/production/index.mjs",
-  "exports": {
-    ".": {
-      "development": {
-        "require": "./dist/cjs/development/index.cjs",
-        "import": "./dist/esm/development/index.mjs"
-      },
-      "require": "./dist/cjs/production/index.cjs",
-      "import": "./dist/esm/production/index.mjs",
-      "types": "./dist/types/index.d.ts"
-    }
+  "private": false,
+  "description": "SWR stores for data-fetching",
+  "keywords": [
+    "preact",
+    "react",
+    "solid-js",
+    "stale-while-revalidate",
+    "swr"
+  ],
+  "homepage": "https://github.com/lxsmnsyc/swr-store/tree/main/packages/swr-store",
+  "bugs": {
+    "url": "https://github.com/lxsmnsyc/swr-store/issues"
+  },
+  "license": "MIT",
+  "author": "Alexis Munsayac",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lxsmnsyc/swr-store.git"
   },
   "files": [
     "dist",
     "src"
   ],
-  "engines": {
-    "node": ">=10"
-  },
-  "license": "MIT",
-  "keywords": [
-    "pridepack",
-    "swr"
-  ],
-  "name": "swr-store",
-  "devDependencies": {
-    "@types/node": "^18.13.0",
-    "eslint": "^8.33.0",
-    "eslint-config-lxsmnsyc": "^0.4.8",
-    "pridepack": "^2.4.0",
-    "tslib": "^2.5.0",
-    "typescript": "^4.9.5"
-  },
-  "scripts": {
-    "prepublish": "pridepack clean && pridepack build",
-    "build": "pridepack build",
-    "type-check": "pridepack check",
-    "lint": "pridepack lint",
-    "test": "pridepack test --passWithNoTests",
-    "clean": "pridepack clean",
-    "watch": "pridepack watch"
-  },
-  "description": "SWR stores for data-fetching",
-  "repository": {
-    "url": "https://github.com/lxsmnsyc/swr-store.git",
-    "type": "git"
-  },
-  "homepage": "https://github.com/lxsmnsyc/swr-store",
-  "bugs": {
-    "url": "https://github.com/lxsmnsyc/swr-store/issues"
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./preact": {
+      "import": "./dist/preact.js",
+      "require": "./dist/preact.cjs"
+    },
+    "./react": {
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./solid": {
+      "import": "./dist/solid.js",
+      "require": "./dist/solid.cjs"
+    },
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
-  "author": "Alexis Munsayac",
-  "private": false,
+  "scripts": {
+    "prepublishOnly": "tsdown",
+    "build": "tsdown",
+    "watch": "tsdown --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json"
+  },
   "dependencies": {
     "dequal": "^2.0.3"
   },
-  "typesVersions": {
-    "*": {}
+  "devDependencies": {
+    "@solidjs/testing-library": "^0.8.10",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/preact": "^3.2.4",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.20.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^30.1.0",
+    "preact": "^10.29.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "solid-js": "^1.9.15",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  },
+  "peerDependencies": {
+    "preact": "^10.11",
+    "react": "^18.0 || ^19.0",
+    "solid-js": "^1.6"
+  },
+  "peerDependenciesMeta": {
+    "preact": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

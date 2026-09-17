@@ -5,10 +5,26 @@
     "packages/*",
     "examples/*"
   ],
+  "type": "module",
+  "scripts": {
+    "build": "pnpm recursive run build",
+    "cs:add": "changeset add",
+    "cs:pub": "changeset publish",
+    "cs:ver": "changeset version",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
+    "test": "pnpm recursive run test",
+    "type-check": "pnpm recursive run type-check"
+  },
   "devDependencies": {
-    "eslint": "^8.33.0",
-    "eslint-config-lxsmnsyc": "^0.4.8",
-    "lerna": "^6.5.1",
-    "typescript": "^4.9.5"
-  }
+    "@changesets/cli": "^3.0.3",
+    "@lxsmnsyc/oxlint-config": "^0.1.2",
+    "oxfmt": "^0.68.0",
+    "oxlint": "^1.83.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@10.34.4"
 }

@@ -1,5 +1,3 @@
-const IS_CLIENT = typeof window !== 'undefined'
-  && typeof window.document !== 'undefined'
-  && typeof window.document.createElement !== 'undefined';
+const IS_CLIENT = typeof window !== 'undefined' && typeof document !== 'undefined';
 
 export default IS_CLIENT;

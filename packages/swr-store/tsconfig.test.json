@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src", "test", "types"],
+  "compilerOptions": {
+    "rootDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    // `preact/compat` declares a global `React` namespace that clashes with
+    // `@types/react` once both bindings load in one program.
+    "skipLibCheck": true,
+    "types": ["node"]
+  }
+}

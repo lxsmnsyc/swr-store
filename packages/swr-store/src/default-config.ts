@@ -1,7 +1,7 @@
 import { dequal } from 'dequal/lite';
-import { SWRStoreExtendedOptions } from './types';
+import type { SWRStoreExtendedOptions } from './types';
 
-function defaultKey<P extends any[] = []>(...args: P): string {
+function defaultKey(...args: unknown[]): string {
   return JSON.stringify(args);
 }
 
