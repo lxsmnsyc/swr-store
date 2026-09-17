@@ -501,6 +501,42 @@ describe('regressions', () => {
   });
 });
 
+describe('notifications', () => {
+  it('notifies about writes made by a read in a microtask', async () => {
+    const key = uniqueKey('deferred');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => 'value',
+    });
+    const listener = vi.fn();
+    const unsubscribe = store.subscribe([], listener);
+
+    store.get([]);
+    expect(listener).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it('fetches once after mutate when stores share a key', async () => {
+    const key = uniqueKey('mutate-shared');
+    const get = vi.fn(async () => 'server');
+    const first = createSWRStore<string>({ key: () => key, get });
+    const second = createSWRStore<string>({ key: () => key, get });
+    const unsubscribeFirst = first.subscribe([], vi.fn());
+    const unsubscribeSecond = second.subscribe([], vi.fn());
+    await first.get([]).data;
+    get.mockClear();
+
+    mutate(key, { status: 'success', data: 'optimistic' });
+
+    expect(get).toHaveBeenCalledTimes(1);
+    unsubscribeFirst();
+    unsubscribeSecond();
+  });
+});
+
 describe('options', () => {
   it('starts the default key with the store name', async () => {
     const name = uniqueKey('named');

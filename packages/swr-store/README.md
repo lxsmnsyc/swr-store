@@ -276,6 +276,9 @@ Returns the cache key for `args`. Pass it to the global `trigger`, `mutate` and 
 
 Calls `listener` every time the cache entry for `args` is written. Returns a function that unsubscribes.
 
+- Writes from fetch results and `mutate` notify right away.
+- Writes made by a read, such as `get` starting a fetch, notify in a microtask. A read can happen while a UI library renders, and notifying right away would update other components in the middle of that render.
+
 The listener receives the cache entry:
 
 - `result` is the `MutationResult<T>`.
@@ -302,6 +305,7 @@ userStore.mutate(['123'], {
 - When both the cached and new results are successes and `compare` says they are equal, the entry keeps its value. Its timestamp is reset and subscribers are not notified.
 - `compare` defaults to the store `compare` option.
 - With `shouldRevalidate: true`, subscribed stores fetch again after the write, even when the entry is fresh. The fetched data then replaces the written data. Pass `false` to keep the written data.
+- When several stores share the key, only one fetch starts.
 
 ### `trigger(key, shouldRevalidate = true)`
 
@@ -387,6 +391,8 @@ For Preact, import from `swr-store/preact` and take `Suspense` from `preact/comp
 
 - Without `suspense`, the hook returns the `MutationResult<T>`.
 - `args` are compared item by item, so passing a new array with the same values each render does not refetch.
+- When a suspended component waited on a fetch, the next read returns that fetch's result even if the entry has already expired. Retrying the render does not start another fetch.
+- During hydration, the React hook first renders what the server rendered, which is `initialData` or the pending result. It then updates to the cached result. This keeps the first client render matching the server HTML.
 - `SWRStoreRoot` is deprecated. The hook does not need it, and it only renders its children.
 
 ### Solid

@@ -1,11 +1,18 @@
-import type { MutationPending, MutationResult } from './cache/mutation-cache';
-import { getMutation, setMutation } from './cache/mutation-cache';
+import type { Mutation, MutationPending, MutationResult } from './cache/mutation-cache';
+import {
+  AWAITED_PROMISES,
+  UNREAD_MUTATIONS,
+  getMutation,
+  setMutation,
+  setMutationDeferred,
+} from './cache/mutation-cache';
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
 import getDefaultConfig from './default-config';
 import { mutate, subscribe, trigger } from './global';
 import IS_CLIENT, { HAS_DOCUMENT, HAS_WINDOW_EVENTS } from './is-client';
 import type { Retry } from './retry';
 import retry from './retry';
+import { setServerRead } from './server-read';
 import type { SWRFullOptions, SWRGetOptions, SWRStore, SWRStoreOptions } from './types';
 
 let index = 0;
@@ -31,6 +38,32 @@ function withDefaults<T extends object>(defaults: T, options?: Partial<T>): T {
   return result;
 }
 
+// The server has no cache, so every read is on its own. Initial data is
+// returned as is. Anything else gets a pending result whose fetch only starts
+// once something waits on it, so a render that only checks the status does
+// not send a request.
+function readOnServer<T, P extends any[] = []>(
+  fullOpts: SWRFullOptions<T, P>,
+  args: P,
+  initialData: T | undefined,
+): MutationResult<T> {
+  if (initialData !== undefined) {
+    return { data: initialData, status: 'success' };
+  }
+  return {
+    data: createLazyPromise(
+      async () =>
+        // Unlimited retries would keep a timer running after the request
+        // ends, so the server only retries when `maxRetryCount` is set.
+        retry(async () => fullOpts.get(...args), {
+          count: fullOpts.maxRetryCount ?? 0,
+          interval: fullOpts.maxRetryInterval,
+        }).resolvable.promise,
+    ),
+    status: 'pending',
+  };
+}
+
 // Reads the cache for `args` and fetches when the cache is missing, stale or
 // expired. With `force`, it fetches even when the cache is fresh.
 function revalidate<T, P extends any[] = []>(
@@ -47,26 +80,8 @@ function revalidate<T, P extends any[] = []>(
     },
     opts,
   );
-  // The server has no cache, so every read is on its own. Initial data is
-  // returned as is. Anything else gets a pending result whose fetch only
-  // starts once something waits on it, so a render that only checks the
-  // status does not send a request.
   if (!IS_CLIENT) {
-    if (initialData !== undefined) {
-      return { data: initialData, status: 'success' };
-    }
-    return {
-      data: createLazyPromise(
-        async () =>
-          // Unlimited retries would keep a timer running after the request
-          // ends, so the server only retries when `maxRetryCount` is set.
-          retry(async () => fullOpts.get(...args), {
-            count: fullOpts.maxRetryCount ?? 0,
-            interval: fullOpts.maxRetryInterval,
-          }).resolvable.promise,
-      ),
-      status: 'pending',
-    };
+    return readOnServer(fullOpts, args, initialData);
   }
 
   // Parse key
@@ -94,7 +109,7 @@ function revalidate<T, P extends any[] = []>(
     };
 
     if (hydrate) {
-      setMutation(generatedKey, currentMutation);
+      setMutationDeferred(generatedKey, currentMutation);
     } else {
       isPlaceholder = true;
     }
@@ -104,6 +119,16 @@ function revalidate<T, P extends any[] = []>(
 
   if (currentMutation) {
     if (!shouldRevalidate) {
+      return currentMutation.result;
+    }
+    if (UNREAD_MUTATIONS.has(currentMutation)) {
+      UNREAD_MUTATIONS.delete(currentMutation);
+      return currentMutation.result;
+    }
+    // A fetch started after the last write is already running, so a forced
+    // revalidation has nothing to add. This keeps stores that share a key
+    // from each fetching after `mutate`.
+    if (force && currentMutation.isValidating && retries.has(generatedKey)) {
       return currentMutation.result;
     }
     if (isPlaceholder) {
@@ -136,7 +161,21 @@ function revalidate<T, P extends any[] = []>(
 
   // The old promise settles with the new fetch, so whoever still waits on it
   // gets the new data.
-  previousRetry?.cancel(pendingData);
+  if (previousRetry) {
+    if (AWAITED_PROMISES.has(previousRetry.resolvable.promise)) {
+      AWAITED_PROMISES.add(pendingData);
+    }
+    previousRetry.cancel(pendingData);
+  }
+
+  // Writes a settled result. When a suspended component waited on this
+  // fetch, the entry is kept for its next read.
+  const writeSettled = (mutation: Mutation<T>): void => {
+    if (AWAITED_PROMISES.has(pendingData)) {
+      UNREAD_MUTATIONS.add(mutation);
+    }
+    setMutation(generatedKey, mutation);
+  };
 
   // Capture result
   const result: MutationPending<T> = {
@@ -166,12 +205,14 @@ function revalidate<T, P extends any[] = []>(
       // revalidation is over.
       if (mutation?.result.status === 'success' && fullOpts.compare(mutation.result.data, data)) {
         if (mutation.isValidating) {
-          setMutation(generatedKey, { ...mutation, isValidating: false });
+          writeSettled({ ...mutation, isValidating: false });
+        } else if (AWAITED_PROMISES.has(pendingData)) {
+          UNREAD_MUTATIONS.add(mutation);
         }
         return;
       }
 
-      setMutation(generatedKey, {
+      writeSettled({
         result: {
           data,
           status: 'success',
@@ -191,7 +232,7 @@ function revalidate<T, P extends any[] = []>(
         return;
       }
 
-      setMutation(generatedKey, {
+      writeSettled({
         result: {
           data,
           status: 'failure',
@@ -218,7 +259,7 @@ function revalidate<T, P extends any[] = []>(
   ) {
     // Updating this means that the freshness or the staleness
     // of a mutation resets
-    setMutation(generatedKey, {
+    setMutationDeferred(generatedKey, {
       result: currentMutation.result,
       timestamp,
       isValidating: true,
@@ -227,7 +268,7 @@ function revalidate<T, P extends any[] = []>(
   }
 
   // Otherwise, set the new mutation
-  setMutation(generatedKey, {
+  setMutationDeferred(generatedKey, {
     result,
     timestamp,
     isValidating: true,
@@ -384,7 +425,7 @@ export default function createSWRStore<T, P extends any[] = []>(
   // key do not affect it.
   const registrations = new Map<string, Registration<P>>();
 
-  return {
+  const store: SWRStore<T, P> = {
     id,
     getKey: (args) => fullOpts.key(...args),
     trigger: (args, shouldRevalidate = true) => {
@@ -436,4 +477,14 @@ export default function createSWRStore<T, P extends any[] = []>(
       };
     },
   };
+
+  setServerRead(store, (args, opts) => {
+    const { initialData } = withDefaults<SWRGetOptions<T>>(
+      { initialData: fullOpts.initialData },
+      opts,
+    );
+    return readOnServer(fullOpts, args, initialData);
+  });
+
+  return store;
 }

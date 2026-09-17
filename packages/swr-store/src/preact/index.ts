@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useSyncExternalStore } from 'preact/compat';
 import { useDebugValue, useState } from 'preact/hooks';
 import type { MutationResult } from '../cache/mutation-cache';
+import { AWAITED_PROMISES } from '../cache/mutation-cache';
 import type { ExternalStore } from '../bindings/external-store';
 import { SERVER_SUSPENSE_ERROR, createExternalStore, isSameArgs } from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
@@ -91,8 +92,14 @@ export function useSWRStore<T, P extends any[] = []>(
     // The server has no cache, so the read after suspending would start a
     // new fetch and suspend again, forever. Fail instead, which makes the
     // nearest Suspense boundary render on the client.
-    if (value.status === 'pending' && !IS_CLIENT) {
-      throw new Error(SERVER_SUSPENSE_ERROR);
+    if (value.status === 'pending') {
+      if (!IS_CLIENT) {
+        throw new Error(SERVER_SUSPENSE_ERROR);
+      }
+      // The next read returns what this fetch settles with, even when the
+      // entry has already expired by then. Otherwise the retry could start a
+      // new fetch and suspend again.
+      AWAITED_PROMISES.add(value.data);
     }
     throw value.data;
   }

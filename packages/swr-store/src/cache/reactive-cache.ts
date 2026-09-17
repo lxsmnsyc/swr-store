@@ -86,6 +86,17 @@ export function setReactiveCacheValue<T>(
   }
 }
 
+// Calls the listeners of `key` with its current value.
+export function notifyReactiveCache<T>(cache: ReactiveCache<T>, key: string): void {
+  const ref = cache.cache.peek(key);
+  const subscribers = cache.subscribers.get(key);
+  if (ref && subscribers) {
+    for (const listener of Array.from(subscribers)) {
+      listener(ref.value);
+    }
+  }
+}
+
 export function getReactiveCacheListenerSize<T>(cache: ReactiveCache<T>, key: string): number {
   return cache.subscribers.get(key)?.size ?? 0;
 }

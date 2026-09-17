@@ -26,4 +26,8 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - Event and polling options are skipped when their events are missing, such as in React Native, instead of throwing.
 - `refreshWhenHidden`, `refreshWhenBlurred` and `refreshWhenOffline` start polling right away when the page is already in that state.
 - The `Mutation` and `MutationListener` types are now exported.
+- A read that writes to the cache, such as `get` starting a fetch, now notifies subscribers in a microtask. React no longer warns about updating a component while rendering a different one.
+- `mutate` now starts one fetch when several stores share the key, instead of one per store.
+- A suspended React or Preact component now gets the result it waited for, even when the entry has already expired. Before, `freshAge: 0` with `staleAge: 0` made it suspend forever.
+- The React hook now renders what the server rendered during hydration, so a filled client cache no longer causes a hydration mismatch.
 - The package is built with tsdown. ESM and CommonJS builds are still published, but the separate `development` builds are gone.

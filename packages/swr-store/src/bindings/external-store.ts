@@ -1,4 +1,5 @@
 import type { MutationResult } from '../cache/mutation-cache';
+import { getServerRead } from '../server-read';
 import type { SWRStore } from '../types';
 
 export const SERVER_SUSPENSE_ERROR =
@@ -11,6 +12,8 @@ export interface ExternalStoreOptions<T> {
 
 export interface ExternalStore<T> {
   read: () => MutationResult<T>;
+  // What the server rendered. Used during hydration.
+  readServer: () => MutationResult<T>;
   subscribe: (notify: () => void) => () => void;
 }
 
@@ -59,8 +62,16 @@ export function createExternalStore<T, P extends any[] = []>(
     return true;
   };
 
+  let serverResult: MutationResult<T> | undefined;
+
   return {
     read: (): MutationResult<T> => current,
+    readServer: (): MutationResult<T> => {
+      // The snapshot has to stay the same object between calls.
+      serverResult ??=
+        getServerRead(store)?.(args, { initialData: options.initialData }) ?? current;
+      return serverResult;
+    },
     subscribe: (notify): (() => void) => {
       const unsubscribe = store.subscribe(args, () => {
         if (refresh()) {
