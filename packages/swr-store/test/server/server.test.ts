@@ -79,4 +79,20 @@ describe('on the server', () => {
     await expect(retrying.get([]).data).rejects.toBe(error);
     expect(get).toHaveBeenCalledTimes(3);
   });
+
+  it('only fetches once the pending result is awaited', async () => {
+    const get = vi.fn(async () => 'value');
+    const store = createSWRStore<string>({
+      key: () => uniqueKey('server-lazy'),
+      get,
+    });
+
+    const result = store.get([]);
+    expect(result.status).toBe('pending');
+    expect(get).not.toHaveBeenCalled();
+
+    await expect(result.data).resolves.toBe('value');
+    await expect(result.data).resolves.toBe('value');
+    expect(get).toHaveBeenCalledTimes(1);
+  });
 });

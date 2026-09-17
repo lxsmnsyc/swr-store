@@ -14,9 +14,12 @@ export interface ReactiveCache<T> {
 }
 
 export function createReactiveCache<T>(maxSize = DEFAULT_CACHE_SIZE): ReactiveCache<T> {
+  const subscribers = new Map<string, Set<ReactiveCacheListener<T>>>();
   return {
-    cache: new LRUMap(maxSize),
-    subscribers: new Map(),
+    // Entries with subscribers stay, so subscribers never hold a value that
+    // is no longer in the cache.
+    cache: new LRUMap(maxSize, (key) => !subscribers.has(key)),
+    subscribers,
   };
 }
 

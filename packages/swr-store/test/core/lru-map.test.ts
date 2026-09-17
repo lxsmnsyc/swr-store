@@ -117,4 +117,16 @@ describe('LRUMap', () => {
       map.maxSize = -1;
     }).toThrow(RangeError);
   });
+
+  it('skips entries that cannot be evicted', () => {
+    const map = new LRUMap<string, number>(2, (key) => key !== 'a');
+    map.set('a', 1).set('b', 2).set('c', 3);
+
+    expect([...map.keys()]).toEqual(['c', 'a']);
+
+    // With every entry protected, the map grows past its size.
+    const locked = new LRUMap<string, number>(1, () => false);
+    locked.set('a', 1).set('b', 2);
+    expect(locked.size).toBe(2);
+  });
 });

@@ -29,6 +29,11 @@ export type SWRSubscribe<T, P extends any[] = []> = (
 
 export interface SWRStoreBaseOptions<T, P extends any[] = []> {
   get: (...args: P) => Promise<T>;
+  /**
+   * Starts the default cache key. Set it when the store is not created once
+   * at module level, so every instance of the store shares the same entries.
+   */
+  name?: string;
   initialData?: T;
   refreshInterval?: number;
   maxRetryCount?: number;

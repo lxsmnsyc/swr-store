@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSWRStore, subscribe } from '../../src';
-import { uniqueKey } from '../utils';
+import { flush, uniqueKey } from '../utils';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -133,5 +133,33 @@ describe('revalidation sources', () => {
 
     unsubscribe();
     visibility.mockRestore();
+  });
+
+  it('revalidates with the arguments of the newest active subscriber', async () => {
+    const key = uniqueKey('latest-args');
+    const get = vi.fn(async (token: string) => token);
+    const store = createSWRStore<string, [string]>({
+      key: () => key,
+      get,
+      freshAge: 0,
+      staleAge: 0,
+      revalidateOnFocus: true,
+    });
+    await store.get(['first']).data;
+
+    const unsubscribeFirst = store.subscribe(['first'], vi.fn());
+    const unsubscribeSecond = store.subscribe(['second'], vi.fn());
+
+    get.mockClear();
+    window.dispatchEvent(new Event('focus'));
+    expect(get).toHaveBeenLastCalledWith('second');
+
+    unsubscribeSecond();
+    await flush();
+    get.mockClear();
+    window.dispatchEvent(new Event('focus'));
+    expect(get).toHaveBeenLastCalledWith('first');
+
+    unsubscribeFirst();
   });
 });

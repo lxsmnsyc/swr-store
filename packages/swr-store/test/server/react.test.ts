@@ -44,15 +44,14 @@ describe('React on the server', () => {
     );
     expect(html).toContain('loading');
     expect(errors).toHaveLength(1);
-    expect(get).toHaveBeenCalledTimes(1);
+    // The pending result was never awaited, so nothing was fetched.
+    expect(get).not.toHaveBeenCalled();
   });
 
   it('renders the pending state without suspense', async () => {
     const key = uniqueKey('react-server-pending');
-    const store = createSWRStore<string>({
-      key: () => key,
-      get: async () => 'fetched',
-    });
+    const get = vi.fn(async () => 'fetched');
+    const store = createSWRStore<string>({ key: () => key, get });
 
     function Status() {
       return useSWRStore(store, []).status;
@@ -60,5 +59,6 @@ describe('React on the server', () => {
 
     const { html } = await render(createElement(Status));
     expect(html).toBe('pending');
+    expect(get).not.toHaveBeenCalled();
   });
 });

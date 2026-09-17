@@ -404,6 +404,29 @@ describe('setCacheSize', () => {
       setCacheSize(1000);
     }
   });
+
+  it('keeps entries that have subscribers', async () => {
+    setCacheSize(1);
+    try {
+      const prefix = uniqueKey('lru-subscribed');
+      const store = createSWRStore<string, [string]>({
+        key: (id) => `${prefix}-${id}`,
+        get: async (id) => id,
+      });
+
+      await store.get(['a']).data;
+      const unsubscribe = store.subscribe(['a'], vi.fn());
+      await store.get(['b']).data;
+
+      expect(store.get(['a'], { shouldRevalidate: false })).toEqual({
+        status: 'success',
+        data: 'a',
+      });
+      unsubscribe();
+    } finally {
+      setCacheSize(1000);
+    }
+  });
 });
 
 describe('regressions', () => {
@@ -475,5 +498,19 @@ describe('regressions', () => {
 
     expect(get).toHaveBeenCalledTimes(1);
     unsubscribe();
+  });
+});
+
+describe('options', () => {
+  it('starts the default key with the store name', async () => {
+    const name = uniqueKey('named');
+    const get = vi.fn(async (id: string) => id);
+    const first = createSWRStore<string, [string]>({ name, get });
+    const second = createSWRStore<string, [string]>({ name, get });
+
+    expect(first.getKey(['a'])).toBe(`${name}:["a"]`);
+    await first.get(['a']).data;
+    expect(second.get(['a'])).toEqual({ status: 'success', data: 'a' });
+    expect(get).toHaveBeenCalledTimes(1);
   });
 });

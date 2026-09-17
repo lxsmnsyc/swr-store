@@ -18,6 +18,8 @@ npm install swr-store
 pnpm add swr-store
 ```
 
+The `swr-store/react`, `swr-store/preact` and `swr-store/solid` entry points need TypeScript's `moduleResolution` set to `bundler`, `node16` or `nodenext`.
+
 ## Quick start
 
 ```ts
@@ -73,10 +75,21 @@ Reading a store returns a `MutationResult<T>`. Check `status` to find out what `
 
 In the browser, every store writes to one global cache. The `key` option turns the store arguments into a cache key.
 
-- By default the key is made from the store's id and `JSON.stringify(args)`. Two stores never share an entry through their default keys.
+- By default the key is the store `name` followed by `JSON.stringify(args)`. Without a `name`, the store's id is used instead, and two stores never share an entry through their default keys.
 - Stores with a custom `key` share an entry when they produce the same key.
 - The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
-- The cache keeps up to 1000 entries. When it is full, the least recently used entry is removed. Change the limit with [`setCacheSize`](#setcachesizesize).
+- The cache keeps up to 1000 entries. When it is full, the least recently used entry without subscribers is removed. Change the limit with [`setCacheSize`](#setcachesizesize).
+
+The store id comes from a counter, so it changes every time the store is created. Create stores once at module level. When a store has to be created inside a function or component, set `name` so every instance uses the same entries.
+
+```ts
+function createUserStore() {
+  return createSWRStore<User, [string]>({
+    name: 'user',
+    get: (id) => getUser(id),
+  });
+}
+```
 
 The server has no cache. See [Server rendering](#server-rendering).
 
@@ -118,9 +131,13 @@ A store revalidates in these cases:
 
 A revalidation follows the cache age rules above, so a fresh entry is not refetched.
 
+Events, polling and `trigger` fetch with the arguments of the newest subscriber that is still subscribed. This matters when a custom `key` leaves out an argument, such as a token.
+
 ### Lazy setup
 
-Event listeners and polling start when a store gets its first subscriber for a key. They stop when the last subscriber for that key unsubscribes. They only run in the browser.
+Event listeners and polling start when a store gets its first subscriber for a key. They stop when that store's last subscriber for the key unsubscribes. Each store manages its own, even when stores share a key.
+
+They only run on the client. An option is skipped when its events are missing, such as window focus in React Native or `document` visibility in a web worker.
 
 ### Events
 
@@ -184,10 +201,15 @@ The result stays pending while the store retries. It becomes a failure once the 
 
 The cache is shared by everything in the same JavaScript runtime. On a server, that would be every request, so the server never caches. This keeps one request from reading another request's data.
 
-When there is no `window` and `document`, the store behaves like this:
+The store treats these as clients, and caches there:
+
+- Pages with a `window`, including React Native.
+- Dedicated and shared web workers.
+
+Everything else is a server. That includes Node, Bun, Deno and edge runtimes such as Cloudflare Workers. On a server, the store behaves like this:
 
 - `get` returns `initialData` as a success result when it is set, and does not fetch. `hydrate` has no effect.
-- Without `initialData`, every `get` starts its own fetch and returns a pending result. Reads do not share fetches, even with the same key.
+- Without `initialData`, every `get` returns a new pending result. Its fetch starts when something awaits `data`, so a render that only checks `status` sends no request. Reads do not share fetches, even with the same key.
 - A failed fetch is only retried when `maxRetryCount` is set. Unlimited retries would keep running after the request ends.
 - `mutate`, `trigger` and `subscribe` do nothing.
 - Event listeners and polling do not start.
@@ -196,7 +218,7 @@ Load data for the page before rendering, and pass it as `initialData`. On the cl
 
 The bindings follow the same rules:
 
-- The React and Preact `useSWRStore` return `initialData` when it is set. Without it, the non-suspense hook returns the pending result.
+- The React and Preact `useSWRStore` return `initialData` when it is set. Without it, the non-suspense hook returns the pending result and does not fetch.
 - With `suspense: true` and no `initialData`, the React and Preact hooks throw an error instead of suspending. Suspending would start a new fetch on every retry and never finish. The error makes the nearest `Suspense` boundary render its fallback on the server and retry on the client.
 - The Solid `useSWRStore` fetches once per resource and waits for it during async server rendering.
 
@@ -213,23 +235,24 @@ Before writing a fetched value, the store compares it with the cached value. Whe
 
 Creates a store. Only `get` is required.
 
-| Option                   | Type                         | Default          |
-| ------------------------ | ---------------------------- | ---------------- |
-| `get`                    | `(...args: P) => Promise<T>` | Required         |
-| `key`                    | `(...args: P) => string`     | `JSON.stringify` |
-| `initialData`            | `T`                          | `undefined`      |
-| `freshAge`               | `number`                     | `2000`           |
-| `staleAge`               | `number`                     | `30000`          |
-| `compare`                | `(a: T, b: T) => boolean`    | Deep equality    |
-| `maxRetryCount`          | `number`                     | Unlimited        |
-| `maxRetryInterval`       | `number`                     | `5000`           |
-| `revalidateOnFocus`      | `boolean`                    | `false`          |
-| `revalidateOnVisibility` | `boolean`                    | `false`          |
-| `revalidateOnNetwork`    | `boolean`                    | `false`          |
-| `refreshInterval`        | `number`                     | `undefined`      |
-| `refreshWhenHidden`      | `boolean`                    | `false`          |
-| `refreshWhenBlurred`     | `boolean`                    | `false`          |
-| `refreshWhenOffline`     | `boolean`                    | `false`          |
+| Option                   | Type                         | Default                                 |
+| ------------------------ | ---------------------------- | --------------------------------------- |
+| `get`                    | `(...args: P) => Promise<T>` | Required                                |
+| `name`                   | `string`                     | `undefined`                             |
+| `key`                    | `(...args: P) => string`     | Name or id, then `JSON.stringify(args)` |
+| `initialData`            | `T`                          | `undefined`                             |
+| `freshAge`               | `number`                     | `2000`                                  |
+| `staleAge`               | `number`                     | `30000`                                 |
+| `compare`                | `(a: T, b: T) => boolean`    | Deep equality                           |
+| `maxRetryCount`          | `number`                     | Unlimited                               |
+| `maxRetryInterval`       | `number`                     | `5000`                                  |
+| `revalidateOnFocus`      | `boolean`                    | `false`                                 |
+| `revalidateOnVisibility` | `boolean`                    | `false`                                 |
+| `revalidateOnNetwork`    | `boolean`                    | `false`                                 |
+| `refreshInterval`        | `number`                     | `undefined`                             |
+| `refreshWhenHidden`      | `boolean`                    | `false`                                 |
+| `refreshWhenBlurred`     | `boolean`                    | `false`                                 |
+| `refreshWhenOffline`     | `boolean`                    | `false`                                 |
 
 Options set to `undefined` keep their default.
 
@@ -290,9 +313,10 @@ The same as `store.mutate`, for a cache key.
 
 ### `setCacheSize(size)`
 
-Sets how many entries the browser cache keeps. It must be a positive integer. The default is `1000`. When the cache holds more entries, the least recently used ones are removed right away.
+Sets how many entries the client cache keeps. It must be a positive integer. The default is `1000`. When the cache holds more entries, the least recently used ones are removed right away.
 
-A removed entry is fetched again the next time it is read.
+- Entries with subscribers are never removed. The cache can grow past the limit while more entries than that have subscribers.
+- A removed entry is fetched again the next time it is read.
 
 ### `subscribe(key, listener)`
 

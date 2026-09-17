@@ -9,6 +9,9 @@ interface LRUNode<K, V> {
 // marks it as the most recently used one. When the map grows past
 // `maxSize`, the least recently used entries are removed.
 //
+// `canEvict` can protect entries from removal. Protected entries are skipped,
+// so the map may stay above `maxSize` while too many of them are protected.
+//
 // Entries sit in a doubly-linked list ordered from most to least recently
 // used, so marking an entry and evicting the oldest one are both O(1).
 export default class LRUMap<K, V> implements Map<K, V> {
@@ -22,8 +25,11 @@ export default class LRUMap<K, V> implements Map<K, V> {
 
   private limit: number;
 
-  constructor(maxSize: number) {
+  private readonly canEvict: ((key: K, value: V) => boolean) | undefined;
+
+  constructor(maxSize: number, canEvict?: (key: K, value: V) => boolean) {
     this.limit = LRUMap.checkSize(maxSize);
+    this.canEvict = canEvict;
   }
 
   private static checkSize(size: number): number {
@@ -187,10 +193,14 @@ export default class LRUMap<K, V> implements Map<K, V> {
   }
 
   private evict(): void {
-    while (this.nodes.size > this.limit && this.tail) {
-      const oldest = this.tail;
-      this.unlink(oldest);
-      this.nodes.delete(oldest.key);
+    let node = this.tail;
+    while (this.nodes.size > this.limit && node) {
+      const { prev } = node;
+      if (!this.canEvict || this.canEvict(node.key, node.value)) {
+        this.unlink(node);
+        this.nodes.delete(node.key);
+      }
+      node = prev;
     }
   }
 }

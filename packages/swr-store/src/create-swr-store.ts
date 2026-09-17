@@ -3,7 +3,7 @@ import { getMutation, setMutation } from './cache/mutation-cache';
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
 import getDefaultConfig from './default-config';
 import { mutate, subscribe, trigger } from './global';
-import IS_CLIENT from './is-client';
+import IS_CLIENT, { HAS_DOCUMENT, HAS_WINDOW_EVENTS } from './is-client';
 import type { Retry } from './retry';
 import retry from './retry';
 import type { SWRFullOptions, SWRGetOptions, SWRStore, SWRStoreOptions } from './types';
@@ -48,22 +48,25 @@ function revalidate<T, P extends any[] = []>(
     opts,
   );
   // The server has no cache, so every read is on its own. Initial data is
-  // returned as is, and anything else starts a fetch that no other read
-  // shares.
+  // returned as is. Anything else gets a pending result whose fetch only
+  // starts once something waits on it, so a render that only checks the
+  // status does not send a request.
   if (!IS_CLIENT) {
     if (initialData !== undefined) {
       return { data: initialData, status: 'success' };
     }
-    // Unlimited retries would keep a timer running after the request ends, so
-    // the server only retries when `maxRetryCount` is set.
-    const data = retry(async () => fullOpts.get(...args), {
-      count: fullOpts.maxRetryCount ?? 0,
-      interval: fullOpts.maxRetryInterval,
-    }).resolvable.promise;
-    // The caller may never read the promise. Mark the rejection as handled so
-    // a failed fetch does not crash the process.
-    data.catch(() => undefined);
-    return { data, status: 'pending' };
+    return {
+      data: createLazyPromise(
+        async () =>
+          // Unlimited retries would keep a timer running after the request
+          // ends, so the server only retries when `maxRetryCount` is set.
+          retry(async () => fullOpts.get(...args), {
+            count: fullOpts.maxRetryCount ?? 0,
+            interval: fullOpts.maxRetryInterval,
+          }).resolvable.promise,
+      ),
+      status: 'pending',
+    };
   }
 
   // Parse key
@@ -233,6 +236,25 @@ function revalidate<T, P extends any[] = []>(
   return result;
 }
 
+// A promise that calls `start` the first time it is awaited or chained.
+// It cannot be an `async` function, because awaiting the returned object
+// would call `then` and start the work right away.
+// oxlint-disable-next-line typescript/promise-function-async
+function createLazyPromise<T>(start: () => Promise<T>): Promise<T> {
+  let promise: Promise<T> | undefined;
+  const get = async (): Promise<T> => {
+    promise ??= start();
+    return promise;
+  };
+  return {
+    [Symbol.toStringTag]: 'Promise',
+    // oxlint-disable-next-line unicorn/no-thenable
+    then: async (onFulfilled, onRejected) => get().then(onFulfilled, onRejected),
+    catch: async (onRejected) => get().catch(onRejected),
+    finally: async (onFinally) => get().finally(onFinally),
+  };
+}
+
 type Cleanup = () => void;
 
 // Starts the revalidation sources of a store for one key: the revalidation
@@ -240,13 +262,13 @@ type Cleanup = () => void;
 function register<T, P extends any[] = []>(
   generatedKey: string,
   fullOpts: SWRFullOptions<T, P>,
-  args: P,
+  getArgs: () => P,
 ): Cleanup[] {
   const cleanups: Cleanup[] = [];
 
   cleanups.push(
     subscribeRevalidation(generatedKey, (force) => {
-      revalidate(fullOpts, args, undefined, force);
+      revalidate(fullOpts, getArgs(), undefined, force);
     }),
   );
 
@@ -262,11 +284,7 @@ function register<T, P extends any[] = []>(
   // Polls while `isActive` returns true. The check runs on every event in
   // `events` and once at the start, so polling begins right away when the
   // page is already in that state.
-  const pollWhile = (
-    target: Window | Document,
-    events: string[],
-    isActive: () => boolean,
-  ): void => {
+  const pollWhile = (target: EventTarget, events: string[], isActive: () => boolean): void => {
     let interval: ReturnType<typeof setInterval> | undefined;
 
     const update = (): void => {
@@ -289,13 +307,15 @@ function register<T, P extends any[] = []>(
 
   // Register polling interval
   if (fullOpts.refreshInterval != null) {
-    if (fullOpts.refreshWhenBlurred) {
+    // Each state needs its own events. Where they are missing, such as in
+    // React Native or a web worker, that kind of polling does not start.
+    if (fullOpts.refreshWhenBlurred && HAS_WINDOW_EVENTS && HAS_DOCUMENT) {
       pollWhile(window, ['blur', 'focus'], () => !document.hasFocus());
     }
-    if (fullOpts.refreshWhenOffline) {
+    if (fullOpts.refreshWhenOffline && HAS_WINDOW_EVENTS) {
       pollWhile(window, ['offline', 'online'], () => !navigator.onLine);
     }
-    if (fullOpts.refreshWhenHidden) {
+    if (fullOpts.refreshWhenHidden && HAS_DOCUMENT) {
       pollWhile(document, ['visibilitychange'], () => document.visibilityState !== 'visible');
     }
     if (
@@ -308,7 +328,7 @@ function register<T, P extends any[] = []>(
     }
   }
 
-  const listen = (target: Window | Document, event: string, listener: () => void): void => {
+  const listen = (target: EventTarget, event: string, listener: () => void): void => {
     target.addEventListener(event, listener, false);
     cleanups.push(() => {
       target.removeEventListener(event, listener, false);
@@ -316,17 +336,17 @@ function register<T, P extends any[] = []>(
   };
 
   // Registers a focus event for revalidation.
-  if (fullOpts.revalidateOnFocus) {
+  if (fullOpts.revalidateOnFocus && HAS_WINDOW_EVENTS) {
     listen(window, 'focus', onRevalidate);
   }
 
   // Registers a online event for revalidation.
-  if (fullOpts.revalidateOnNetwork) {
+  if (fullOpts.revalidateOnNetwork && HAS_WINDOW_EVENTS) {
     listen(window, 'online', onRevalidate);
   }
 
   // Registers a visibility change event for revalidation.
-  if (fullOpts.revalidateOnVisibility) {
+  if (fullOpts.revalidateOnVisibility && HAS_DOCUMENT) {
     listen(document, 'visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         onRevalidate();
@@ -337,8 +357,9 @@ function register<T, P extends any[] = []>(
   return cleanups;
 }
 
-interface Registration {
-  count: number;
+interface Registration<P> {
+  // The arguments of each active subscriber, oldest first.
+  subscribers: Set<{ args: P }>;
   cleanups: Cleanup[];
 }
 
@@ -347,9 +368,11 @@ export default function createSWRStore<T, P extends any[] = []>(
 ): SWRStore<T, P> {
   const id = `SWRStore-${getIndex()}`;
   const defaults = getDefaultConfig<T, P>();
-  // The default key includes the store id, so two stores called with the
-  // same arguments do not share a cache entry.
-  defaults.key = (...args: P): string => `${id}:${JSON.stringify(args)}`;
+  // The default key starts with the store name, or the store id when there is
+  // no name, so two stores called with the same arguments do not share a
+  // cache entry.
+  const prefix = options.name ?? id;
+  defaults.key = (...args: P): string => `${prefix}:${JSON.stringify(args)}`;
 
   const fullOpts: SWRFullOptions<T, P> = {
     ...options,
@@ -359,7 +382,7 @@ export default function createSWRStore<T, P extends any[] = []>(
   // Every store counts its own subscribers per key, and starts and stops its
   // own revalidation sources. Other stores or global subscribers on the same
   // key do not affect it.
-  const registrations = new Map<string, Registration>();
+  const registrations = new Map<string, Registration<P>>();
 
   return {
     id,
@@ -378,25 +401,33 @@ export default function createSWRStore<T, P extends any[] = []>(
 
       let registration = registrations.get(generatedKey);
       if (!registration) {
+        const subscribers = new Set<{ args: P }>();
         registration = {
-          count: 0,
-          cleanups: register(generatedKey, fullOpts, args),
+          subscribers,
+          // A custom key may leave out some arguments, such as a token.
+          // Revalidation uses the newest active subscriber's arguments, so
+          // it does not keep using those of a subscriber that left.
+          cleanups: register(generatedKey, fullOpts, () => {
+            let latest = args;
+            for (const subscriber of subscribers) {
+              latest = subscriber.args;
+            }
+            return latest;
+          }),
         };
         registrations.set(generatedKey, registration);
       }
-      registration.count += 1;
       const current = registration;
+      const entry = { args };
+      current.subscribers.add(entry);
 
       const unsubscribe = subscribe(generatedKey, listener);
-      let active = true;
       return () => {
-        if (!active) {
+        if (!current.subscribers.delete(entry)) {
           return;
         }
-        active = false;
         unsubscribe();
-        current.count -= 1;
-        if (current.count === 0) {
+        if (current.subscribers.size === 0) {
           for (const cleanup of current.cleanups) {
             cleanup();
           }
