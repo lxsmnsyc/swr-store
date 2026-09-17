@@ -1,8 +1,12 @@
 # swr-store
 
-> Reactive SWR stores for data-fetching.
+> Reactive stores for data fetching with the stale-while-revalidate strategy.
 
 [![NPM](https://img.shields.io/npm/v/swr-store.svg)](https://www.npmjs.com/package/swr-store)
+
+A store wraps an async function. Reading the store returns the cached result right away and refetches in the background when the cache gets old. Subscribers are notified when the cache changes.
+
+The package has no framework dependency. Bindings for React, Preact and Solid ship as separate entry points.
 
 ## Install
 
@@ -14,313 +18,303 @@ npm install swr-store
 pnpm add swr-store
 ```
 
-Bindings for React, Preact and Solid ship in the same package. See [Bindings](#bindings).
+## Quick start
 
-## Usage
+```ts
+import type { MutationResult } from 'swr-store';
+import { createSWRStore } from 'swr-store';
 
-```tsx
-import { createSWRStore, trigger } from 'swr-store';
-
-const dogAPI = createSWRStore<APIResult, [string]>({
-  // Fetch data based on breed
-  get: async (breed: string) => {
-    const response = await fetch(`${API}${breed}${API_SUFFIX}`);
-    return (await response.json()) as APIResult;
-  },
-  // Allow us to revalidate the data
-  // whenever the page gets focused
-  revalidateOnFocus: true,
-
-  // Revalidate the data when the network goes
-  // back online
-  revalidateOnNetwork: true,
-});
-
-// Will be pending initially.
-// The result will change once dogAPI.get is called again
-// sometime after the fetch has assumed to be resolved.
-const result = dogAPI.get(['shiba']);
-
-if (result.status === 'pending') {
-  displaySkeleton();
-} else if (result.status === 'failure') {
-  displayFallback();
-} else if (result.status === 'success') {
-  displayUI(result.data);
+interface User {
+  id: string;
+  name: string;
 }
 
-// When click is triggered, we prompt a revalidation process
-document.getElementById('#refresh').addEventListener('click', () => {
-  // We can do local revalidation
-  dogAPI.trigger(['shiba']);
-
-  // Or a global revalidation
-  trigger('shiba');
-});
-```
-
-## Features
-
-### Key Generation
-
-SWR stores may derive keys based on received arguments. These keys are used to locate cache references. By default, arguments are serialized through `JSON.stringify`, but can be overriden by providing `options.key`, where the `key` function receives the arguments and may return a string.
-
-```ts
-const store = createSWRStore({
-  // Only select the key
-  // note that keys are globally shared.
-  key: (id) => id,
-
-  // An auth-based endpoint
-  get: (id, token) =>
-    getUserPrivateData({
-      userId: id,
-      token,
-    }),
-});
-
-// ...
-const privateData = store.get(userId, userToken);
-```
-
-### Subscriptions
-
-SWR store allows subscriptions to subscribe for cache updates. Subscribing returns a callback that allows unsubscribing to the cache updates.
-
-```ts
-// Local subscription
-const unsubscribe = userDetails.subscribe([userId], (result) => {
-  if (result.status === 'pending') {
-    displaySkeleton();
-  } else if (result.status === 'failure') {
-    displayFallback();
-  } else if (result.status === 'success') {
-    displayUI(result.data);
-  }
-});
-
-// global subscription
-import { subscribe } from 'swr-store';
-
-const unsubscribe = subscribe(`/user/${userId}`, (result) => {
-  if (result.status === 'pending') {
-    displaySkeleton();
-  } else if (result.status === 'failure') {
-    displayFallback();
-  } else if (result.status === 'success') {
-    displayUI(result.data);
-  }
-});
-```
-
-### Hydration
-
-SWR store may present an initial data through `options.initialData`. This data is used only when the store finds an empty cache value. Initial data is also useful for opting-out of initial pending phase and providing a way for SSR pages to hydrate stores.
-
-```ts
-const userDetails = createSWRStore({
-  get: (id) => getUserDetails(id),
-
-  initialData: prefetchedData,
-});
-```
-
-Stores can also be hydrated manually through `mutate`.
-
-Calling `store.get` also allows lazy hydration, in which the provided initial data is preferred rather than `options.initialData`.
-
-```ts
-const result = userDetails.get([userId], {
-  // If there's no cache, prefetched data is used
-  // then attempts revalidation
-  initialData: prefetchedData,
-});
-```
-
-Do note that `options.initialData` won't hydrate the actual store but present a fallback data when the result is still pending. You can use `options.hydrate` to overwrite the current cached data.
-
-### Lazy Revalidation
-
-SWR stores are lazily revalidated whenever `store.get` is called.
-
-```ts
-// Initial fetch
-const result = store.get([]);
-
-setTimeout(() => {
-  // May contain the resolved result
-  // or a new one if the cache has been invalidated.
-  const newResult = store.get([]);
-});
-```
-
-Revalidation on `get` may be opt-out by providing `shouldRevalidate`:
-
-```ts
-const result = store.get([], {
-  shouldRevalidate: false,
-});
-```
-
-### Global Revalidation
-
-SWR stores share the same global cache, and can be prompted with a global manual revalidation. `trigger` and `mutate` are similar to store's `store.trigger` and `store.mutate` except that they accept the cache key instead of the store's expected arguments.
-
-Stores subscribers are may be notified (`trigger` does not guarantee a notification, while `mutate` guarantees a notification) for the cache update.
-
-```ts
-import { trigger, mutate } from 'swr-store';
-
-const userDetails = createSWRStore({
-  // Transform id into a cache key
+const userStore = createSWRStore<User, [string]>({
   key: (id) => `/user/${id}`,
-
-  // An auth-based endpoint
-  get: (id) => getUserDetails(id),
-});
-
-// ...
-// Global trigger
-trigger(`/user/${userId}`);
-
-// Or mutate
-mutate(`/user/${userId}`, {
-  data: {
-    name: 'John Doe',
-    age: 16,
+  get: async (id) => {
+    const response = await fetch(`/api/user/${id}`);
+    if (!response.ok) {
+      throw new Error('Failed to load user');
+    }
+    return (await response.json()) as User;
   },
-  status: 'success',
+  revalidateOnFocus: true,
 });
+
+const unsubscribe = userStore.subscribe(['123'], (mutation) => {
+  render(mutation.result);
+});
+
+// Starts the fetch and returns a pending result.
+render(userStore.get(['123']));
+
+function render(result: MutationResult<User>) {
+  if (result.status === 'pending') {
+    showSpinner();
+  } else if (result.status === 'failure') {
+    showError(result.data);
+  } else {
+    showUser(result.data);
+  }
+}
 ```
 
-### Local Revalidation
+## Results
 
-SWR stores can be manually revalidated by calling `store.trigger` or `store.mutate`.
+Reading a store returns a `MutationResult<T>`. Check `status` to find out what `data` holds.
 
-- `store.trigger(args, shouldRevalidate = true)`: Triggers a revalidation from the given arguments. Arguments are passed to `options.key` to locate the cache.
-- `store.mutate(args, result, shouldRevalidate = true)`: Mutates the cache with `result`. Cache is located based on the key generated from the arguments passed to `options.key`.
+| `status`    | `data`                                                |
+| ----------- | ----------------------------------------------------- |
+| `'pending'` | A `Promise<T>` for the running fetch.                 |
+| `'success'` | The fetched value, of type `T`.                       |
+| `'failure'` | The error thrown by `get`, after the retries ran out. |
+
+## Keys and the shared cache
+
+Every store writes to one global cache. The `key` option turns the store arguments into a cache key.
+
+- By default the key is `JSON.stringify(args)`.
+- Two stores that produce the same key share the same cache entry.
+- The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments.
+
+A custom key lets you leave arguments out of the key, such as an auth token.
 
 ```ts
-// Local revalidation
-userDetails.trigger([userId]);
+const privateData = createSWRStore<Data, [string, string]>({
+  key: (userId) => `/user/${userId}/private`,
+  get: (userId, token) => getPrivateData(userId, token),
+});
 
-// is the same as
-trigger(`/user/${userId}`);
-
-// Since userDetails yields the same key format.
+privateData.get([userId, token]);
 ```
 
-### Auto Revalidation
+## Cache age
 
-SWR stores are able to automatically revalidate data based on DOM events. This feature can be activated based on the following options:
+Each cache entry has a timestamp. Its age decides what a read does.
 
-- `options.revalidateOnFocus`: Automatically revalidates data when the window `'focus'` event is triggered. Defaults to `false`.
-- `options.revalidateOnVisibility`: Automatically revalidates data when the document `'visibilitychange'` event is triggered, specifically, if the page is `'visible'`. Defaults to `false`.
-- `options.revalidateOnNetwork`: Automatically revalidates data when the window `'online'` event is triggered. Defaults to `false`.
+| Age                             | State   | What `get` does                                            |
+| ------------------------------- | ------- | ---------------------------------------------------------- |
+| Less than `freshAge`            | Fresh   | Returns the cached result. No fetch.                       |
+| Less than `freshAge + staleAge` | Stale   | Returns the cached result and refetches in the background. |
+| Older                           | Expired | Starts a fetch and returns a new pending result.           |
 
-### Polling Revalidation
+- `freshAge` defaults to `2000` milliseconds.
+- `staleAge` defaults to `30000` milliseconds.
+- Starting a background fetch resets the timestamp, so the entry is fresh again.
+- Ages are only checked when the store is read or revalidated. Nothing expires on a timer.
 
-SWR stores are able to poll for revalidation. They are different to event-based revalidation as polling revalidation happens in intervals.
+Reads within `freshAge` share one fetch, so calling `get` many times does not send many requests. When a fetch settles after a newer write to the same key, its result is dropped.
 
-This behavior can be activated through the following options:
+## Revalidation
 
-- `options.refreshInterval`: Amount of time (in milliseconds) the revalidation goes through in intervals. Defaults to `undefined` (Does not poll). Polling begins immediately after the lazy setup has been triggered.
+A store revalidates in these cases:
 
-The default behavior can be overriden by the following options:
+- `store.get` is called and the cache is stale or expired.
+- `store.trigger` or the global `trigger` is called, and the store has subscribers.
+- An event or polling option fires, and the store has subscribers.
 
-- `options.refreshWhenHidden`: Overrides the default polling behavior and only begins polling after the page becomes hidden (triggered by document `visibilitychange` event.). Once the document becomes visible, polling halts.
-- `options.refreshWhenBlurred`: Overrides the default polling behavior and only begins polling after the page loses focus (triggered by window `blur` and `focus` events). Once the page is focused again, polling halts.
-- `options.refreshWhenOffline`: Overrides the default polling behavior and only begins polling after the page becomes offline (triggered by window `offline` and `online` events). Once the page is focused again, polling halts.
+A revalidation follows the cache age rules above, so a fresh entry is not refetched.
 
-### Lazy Setup
+### Lazy setup
 
-SWR stores are lazily setup: polling and automatic revalidation only begins when there are subscribers to the stores. Once a store receives a subscriber (through `store.subscribe` method), the store lazily sets up the revalidation processes, this way, automatic processes are conserved and are only added when needed.
+Event listeners and polling start when a store gets its first subscriber for a key. They stop when the last subscriber for that key unsubscribes. They only run in the browser.
 
-Stores also halt from automatic revalidation if they lose all subscribers through reference-counting.
+### Events
 
-### Cache Age
+| Option                   | Revalidates when                                  |
+| ------------------------ | ------------------------------------------------- |
+| `revalidateOnFocus`      | The window fires `focus`.                         |
+| `revalidateOnVisibility` | The page fires `visibilitychange` and is visible. |
+| `revalidateOnNetwork`    | The window fires `online`.                        |
 
-SWR stores can define how 'fresh' or 'stale' the cache is, which can alter the revalidation behavior:
+All three default to `false`.
 
-- If the cache is 'fresh', revalidation phases skips the fetching stage.
-- If the cache is 'stale', revalidation phases goes through, but the result does not return to `'pending'` state.
+### Polling
 
-These behavior can be defined through the following options:
+Set `refreshInterval` to a number of milliseconds to revalidate on an interval. Polling runs all the time by default. These options limit it:
 
-- `options.freshAge`: Defines how long the cache stays 'fresh', in milliseconds. Defaults to `2000`. (2 seconds).
-- `options.staleAge`: Defines how long the cache stays 'stale' after becoming 'fresh', in milliseconds. Defaults to `30000` (30 seconds).
+- `refreshWhenHidden` polls only while the page is hidden.
+- `refreshWhenBlurred` polls only while the window is not focused.
+- `refreshWhenOffline` polls only while the browser is offline.
 
-A cache is 'fresh' when the time between the cache was updated and was read is between the `options.freshAge` value, otherwise, the cache automatically becomes 'stale'.
-A cache that has been 'stale' will continue being 'stale' until the time between the cache became 'stale' and was read is between the `options.staleAge`.
+When one or more of these options is set, polling only happens in those states.
 
-Cache invalidation always happen lazily: checking for cache age only happens when the revalidation process is requested upon (usually automatically through polling or revalidation on events) or manually (`mutate` or `trigger`).
+## Initial data and hydration
 
-### Deduplication
+`initialData` gives a store a value to return before the first fetch settles. Set it on the store, or pass it to `get` to override the store option.
 
-SWR Stores throttles data fetching processes through the caching strategy. Cache maintain a timestamp internally, marking valid requests and cache references, establishing race conditions.
+```ts
+const result = userStore.get(['123'], {
+  initialData: prefetchedUser,
+});
+// { status: 'success', data: prefetchedUser }
+```
 
-### CSR-Only Revalidation and Fetching
+By default initial data is only a placeholder.
 
-SWR stores' cache revalidation and data-fetching only happens on client-side.
+- It is returned while there is no cache entry for the key.
+- It does not count as fresh, so the first read still starts a fetch.
+- It is not written to the cache.
 
-### Success Bailouts
+Pass `hydrate: true` to write it to the cache instead. The entry then follows the cache age rules like fetched data. Use this when the value came from the server and you trust it to be current, such as data rendered during SSR.
 
-SWR stores, by default, deeply compare success data in between cache updates. This behavior prevents re-notifying subscribers when the contents of the data remains the same. This behavior can be overriden by providing a compare function in `options.compare`.
+```ts
+userStore.get(['123'], {
+  initialData: prefetchedUser,
+  hydrate: true,
+});
+```
 
-`mutate` accepts an custom compare function to override this behavior as a fourth parameter.
+You can also write to the cache directly with `mutate`.
 
-### Retries
+## Retries
 
-SWR stores implements the exponential backoff algorithm for retry intervals whenever a request fails. By default, SWR stores retry indefinitely until the request resolves successfully at a maximum interval of `5000ms`. Limit can be defined through `options.maxRetryCount` and the interval can be overriden with `options.maxRetryInterval`.
+When `get` throws or rejects, the store retries with exponential backoff.
+
+- The first retry waits 10 milliseconds, and each wait doubles.
+- `maxRetryInterval` caps the wait. It defaults to `5000` milliseconds.
+- `maxRetryCount` limits the number of retries. By default the store retries until the fetch succeeds.
+
+The result stays pending while the store retries. It becomes a failure once the retries run out.
+
+## Comparing results
+
+Before writing a fetched value, the store compares it with the cached value. When they are equal, the cache is not updated and subscribers are not notified.
+
+- The default comparison is a deep equality check from `dequal`.
+- Set `compare` to use your own function. It receives the old and new values and returns `true` when they are equal.
+
+## API
+
+### `createSWRStore(options)`
+
+Creates a store. Only `get` is required.
+
+| Option                   | Type                         | Default          |
+| ------------------------ | ---------------------------- | ---------------- |
+| `get`                    | `(...args: P) => Promise<T>` | Required         |
+| `key`                    | `(...args: P) => string`     | `JSON.stringify` |
+| `initialData`            | `T`                          | `undefined`      |
+| `freshAge`               | `number`                     | `2000`           |
+| `staleAge`               | `number`                     | `30000`          |
+| `compare`                | `(a: T, b: T) => boolean`    | Deep equality    |
+| `maxRetryCount`          | `number`                     | Unlimited        |
+| `maxRetryInterval`       | `number`                     | `5000`           |
+| `revalidateOnFocus`      | `boolean`                    | `false`          |
+| `revalidateOnVisibility` | `boolean`                    | `false`          |
+| `revalidateOnNetwork`    | `boolean`                    | `false`          |
+| `refreshInterval`        | `number`                     | `undefined`      |
+| `refreshWhenHidden`      | `boolean`                    | `false`          |
+| `refreshWhenBlurred`     | `boolean`                    | `false`          |
+| `refreshWhenOffline`     | `boolean`                    | `false`          |
+
+Options set to `undefined` keep their default.
+
+### `store.get(args, options?)`
+
+Reads the cache entry for `args` and returns a `MutationResult<T>`. It may start a fetch, as described in [Cache age](#cache-age).
+
+| Option             | Description                                                       | Default                 |
+| ------------------ | ----------------------------------------------------------------- | ----------------------- |
+| `shouldRevalidate` | When `false`, returns the cached result without checking its age. | `true`                  |
+| `initialData`      | Returned when there is no cache entry.                            | The store `initialData` |
+| `hydrate`          | Writes `initialData` to the cache.                                | `false`                 |
+
+With `shouldRevalidate: false`, a read still starts a fetch when there is no cache entry and no initial data.
+
+### `store.subscribe(args, listener)`
+
+Calls `listener` every time the cache entry for `args` is written. Returns a function that unsubscribes.
+
+The listener receives the cache entry:
+
+- `result` is the `MutationResult<T>`.
+- `timestamp` is the time of the last write or revalidation.
+- `isValidating` is `true` while a background fetch runs.
+
+Subscribing also starts the event listeners and polling for the key. See [Lazy setup](#lazy-setup).
+
+### `store.trigger(args, shouldRevalidate = true)`
+
+Asks the subscribed stores for the key of `args` to revalidate. With `shouldRevalidate: false`, nothing is refetched.
+
+### `store.mutate(args, result, shouldRevalidate = true, compare?)`
+
+Writes `result` to the cache entry for `args` and notifies subscribers.
+
+```ts
+userStore.mutate(['123'], {
+  status: 'success',
+  data: { id: '123', name: 'John Doe' },
+});
+```
+
+- When both the cached and new results are successes and `compare` says they are equal, the entry keeps its value. Its timestamp is reset and subscribers are not notified.
+- `compare` defaults to the store `compare` option.
+- With `shouldRevalidate: true`, subscribed stores are asked to revalidate first, as with `trigger`.
+
+### `trigger(key, shouldRevalidate = true)`
+
+The same as `store.trigger`, for a cache key.
+
+### `mutate(key, result, shouldRevalidate = true, compare = dequal)`
+
+The same as `store.mutate`, for a cache key.
+
+### `subscribe(key, listener)`
+
+The same as `store.subscribe`, for a cache key. It does not start event listeners or polling.
+
+```ts
+import { mutate, subscribe, trigger } from 'swr-store';
+
+const unsubscribe = subscribe('/user/123', (mutation) => {
+  console.log(mutation.result);
+});
+
+trigger('/user/123');
+```
 
 ## Bindings
 
-Each binding is a separate entry point with an optional peer dependency.
+Each binding is a separate entry point. The framework is an optional peer dependency, so install only the one you use.
 
-| Import             | Peer dependency         |
-| ------------------ | ----------------------- |
-| `swr-store/react`  | `react` 18 or 19        |
-| `swr-store/preact` | `preact` 10.11 or later |
-| `swr-store/solid`  | `solid-js` 1.6 or later |
+| Import             | Peer dependency         | Example                                                                            |
+| ------------------ | ----------------------- | ---------------------------------------------------------------------------------- |
+| `swr-store/react`  | `react` 18 or 19        | [examples/react](https://github.com/lxsmnsyc/swr-store/tree/main/examples/react)   |
+| `swr-store/preact` | `preact` 10.11 or later | [examples/preact](https://github.com/lxsmnsyc/swr-store/tree/main/examples/preact) |
+| `swr-store/solid`  | `solid-js` 1.6 or later | [examples/solid](https://github.com/lxsmnsyc/swr-store/tree/main/examples/solid)   |
 
 ### React and Preact
 
+`useSWRStore(store, args, options?)` reads the store and re-renders when the cache entry changes.
+
 ```tsx
 import { Suspense } from 'react';
-import { createSWRStore } from 'swr-store';
 import { useSWRStore } from 'swr-store/react';
 
-const dogAPI = createSWRStore<APIResult, [string]>({
-  key: (breed) => breed,
-  get: async (breed) => {
-    const response = await fetch(`https://dog.ceo/api/breed/${breed}/images/random`);
-    return (await response.json()) as APIResult;
-  },
-  revalidateOnFocus: true,
-});
+function UserName(props: { id: string }) {
+  const user = useSWRStore(userStore, [props.id], { suspense: true });
 
-function DogImage() {
-  const data = useSWRStore(dogAPI, ['shiba'], { suspense: true });
-
-  return <img src={data.message} alt={data.message} />;
+  return <span>{user.name}</span>;
 }
 
-function DogImageWithoutSuspense() {
-  const result = useSWRStore(dogAPI, ['shiba']);
+function UserNameWithoutSuspense(props: { id: string }) {
+  const result = useSWRStore(userStore, [props.id]);
 
   if (result.status === 'pending') {
-    return <h1>Loading...</h1>;
+    return <span>Loading...</span>;
   }
   if (result.status === 'failure') {
-    return <h1>Something went wrong.</h1>;
+    return <span>Something went wrong.</span>;
   }
-  return <img src={result.data.message} alt={result.data.message} />;
+  return <span>{result.data.name}</span>;
 }
 
 export default function App() {
   return (
-    <Suspense fallback={<h1>Loading...</h1>}>
-      <DogImage />
+    <Suspense fallback={<span>Loading...</span>}>
+      <UserName id="123" />
     </Suspense>
   );
 }
@@ -328,59 +322,60 @@ export default function App() {
 
 For Preact, import from `swr-store/preact` and take `Suspense` from `preact/compat`.
 
-`useSWRStore(store, args, options)` subscribes to the store with the given arguments. `options` has these properties:
+| Option             | Description                                                                                        | Default                 |
+| ------------------ | -------------------------------------------------------------------------------------------------- | ----------------------- |
+| `suspense`         | When `true`, suspends while pending, throws the error on failure, and returns the data on success. | `false`                 |
+| `initialData`      | Returned while there is no cache entry.                                                            | The store `initialData` |
+| `shouldRevalidate` | When `false`, the first read does not check the cache age.                                         | `true`                  |
 
-- `suspense`: When `true`, the component suspends while the result is pending, throws the error on failure, and returns the data on success. Otherwise the hook returns the result. Defaults to `false`.
-- `initialData`: Used when the store has no cache for the arguments. Defaults to the store's `initialData`.
-- `shouldRevalidate`: When `true`, reading the store goes through revalidation. Defaults to `true`.
-
-`SWRStoreRoot` is still exported but is deprecated. The hook no longer needs it, so it only renders its children.
+- Without `suspense`, the hook returns the `MutationResult<T>`.
+- `args` are compared item by item, so passing a new array with the same values each render does not refetch.
+- `SWRStoreRoot` is deprecated. The hook does not need it, and it only renders its children.
 
 ### Solid
 
+`args` is a function, so the hooks follow reactive arguments.
+
 ```tsx
-import { Show, Suspense } from 'solid-js';
-import { createSWRStore } from 'swr-store';
+import { Suspense } from 'solid-js';
 import { useSWRStore, useSWRStoreSuspenseless } from 'swr-store/solid';
 
-function DogImage() {
-  const data = useSWRStore(dogAPI, () => ['shiba']);
+function UserName(props: { id: string }) {
+  const user = useSWRStore(userStore, (): [string] => [props.id]);
 
-  return (
-    <Show when={data()} keyed>
-      {(value) => <img src={value.message} alt={value.message} />}
-    </Show>
-  );
+  return <span>{user()?.name}</span>;
 }
 
-function DogImageSuspenseless() {
-  const result = useSWRStoreSuspenseless(dogAPI, () => ['shiba']);
+function UserNameSuspenseless(props: { id: string }) {
+  const result = useSWRStoreSuspenseless(userStore, (): [string] => [props.id]);
 
-  return (
-    <Show
-      when={result().status === 'success' && result().data}
-      fallback={<h1>Loading...</h1>}
-      keyed
-    >
-      {(value) => <img src={value.message} alt={value.message} />}
-    </Show>
-  );
+  const label = () => {
+    const current = result();
+    if (current.status === 'pending') {
+      return 'Loading...';
+    }
+    if (current.status === 'failure') {
+      return 'Something went wrong.';
+    }
+    return current.data.name;
+  };
+
+  return <span>{label()}</span>;
 }
 
 export default function App() {
   return (
-    <Suspense fallback={<h1>Loading...</h1>}>
-      <DogImage />
-      <DogImageSuspenseless />
+    <Suspense fallback={<span>Loading...</span>}>
+      <UserName id="123" />
     </Suspense>
   );
 }
 ```
 
-- `useSWRStore(store, args, options)` returns a resource with the data. `args` is a function, so the hook follows reactive arguments.
-- `useSWRStoreSuspenseless(store, args, options)` returns a signal with the result and does not suspend.
+- `useSWRStore(store, args, options?)` returns a `Resource<T | undefined>`. It suspends while pending and holds the error on failure.
+- `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `MutationResult<T>` and never suspends.
 
-`options` accepts `initialData`, `shouldRevalidate` and `hydrate`, with the same meaning as in `store.get`.
+Both accept `initialData`, `shouldRevalidate` and `hydrate`, with the same meaning as in [`store.get`](#storegetargs-options).
 
 ## License
 

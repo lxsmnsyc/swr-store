@@ -174,18 +174,43 @@ describe('createSWRStore', () => {
     expect(attempts).toBe(3);
   });
 
-  it('uses initialData as a fallback without writing it to the cache', () => {
+  it('returns initialData while the first fetch runs', async () => {
     const key = uniqueKey('initial');
-    const store = createSWRStore<string>({
-      key: () => key,
-      get: async () => 'fetched',
-    });
+    const deferred = createDeferred<string>();
+    const get = vi.fn(async () => deferred.promise);
+    const store = createSWRStore<string>({ key: () => key, get });
 
     expect(store.get([], { initialData: 'initial' })).toEqual({
       status: 'success',
       data: 'initial',
     });
-    expect(store.get([]).status).toBe('pending');
+    // The fetch is already running, so a second read does not start another.
+    expect(store.get([], { initialData: 'initial' })).toEqual({
+      status: 'success',
+      data: 'initial',
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+
+    deferred.resolve('fetched');
+    await flush();
+
+    expect(store.get([], { initialData: 'initial' })).toEqual({
+      status: 'success',
+      data: 'fetched',
+    });
+  });
+
+  it('accepts falsy initialData', () => {
+    const key = uniqueKey('falsy');
+    const store = createSWRStore<number>({
+      key: () => key,
+      get: async () => 1,
+    });
+
+    expect(store.get([], { initialData: 0 })).toEqual({
+      status: 'success',
+      data: 0,
+    });
   });
 
   it('writes initialData to the cache when hydrate is set', () => {
@@ -199,15 +224,38 @@ describe('createSWRStore', () => {
     expect(get).not.toHaveBeenCalled();
   });
 
-  it('falls back to the initialData option of the store', () => {
+  it('falls back to the initialData option of the store', async () => {
     const key = uniqueKey('store-initial');
+    const get = vi.fn(async () => 'fetched');
     const store = createSWRStore<string>({
       key: () => key,
-      get: async () => 'fetched',
+      get,
       initialData: 'initial',
     });
 
-    expect(store.get([])).toEqual({ status: 'success', data: 'initial' });
+    // An explicit `undefined` keeps the store option.
+    expect(store.get([], { initialData: undefined })).toEqual({
+      status: 'success',
+      data: 'initial',
+    });
+    await flush();
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(store.get([])).toEqual({ status: 'success', data: 'fetched' });
+  });
+
+  it('keeps the defaults for options set to undefined', () => {
+    const key = uniqueKey('undefined-options');
+    const get = vi.fn(async () => 'value');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: undefined,
+    });
+
+    store.get([]);
+    store.get([]);
+    expect(get).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a fetch that settles after a newer write', async () => {

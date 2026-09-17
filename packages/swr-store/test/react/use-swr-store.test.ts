@@ -26,6 +26,21 @@ describe('useSWRStore', () => {
     });
   });
 
+  it('shows the initial data, then the fetched data', async () => {
+    const key = uniqueKey('react-initial');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => 'fetched',
+    });
+
+    const { result } = renderHook(() => useSWRStore(store, [], { initialData: 'initial' }));
+    expect(result.current).toEqual({ status: 'success', data: 'initial' });
+
+    await waitFor(() => {
+      expect(result.current).toEqual({ status: 'success', data: 'fetched' });
+    });
+  });
+
   it('renders the latest mutation', () => {
     const key = uniqueKey('react-mutate');
     const store = createSWRStore<string>({

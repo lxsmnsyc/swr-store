@@ -1,10 +1,12 @@
 # swr-store
 
-> Reactive stores for data-fetching with the stale-while-revalidate strategy.
+> Reactive stores for data fetching with the stale-while-revalidate strategy.
 
 [![NPM](https://img.shields.io/npm/v/swr-store.svg)](https://www.npmjs.com/package/swr-store)
 
-See the [package README](https://github.com/lxsmnsyc/swr-store/tree/main/packages/swr-store) for the full API.
+A store wraps an async function, caches its results, and refetches in the background when the cache gets old. It works on its own or through the React, Preact and Solid bindings.
+
+See the [package README](https://github.com/lxsmnsyc/swr-store/tree/main/packages/swr-store) for guides and the full API.
 
 ## Entry points
 

@@ -1,7 +1,7 @@
 import type { MutationPending, MutationResult } from './cache/mutation-cache';
 import { getMutation, getMutationListenerSize, setMutation } from './cache/mutation-cache';
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
-import DEFAULT_CONFIG from './default-config';
+import getDefaultConfig from './default-config';
 import { mutate, subscribe, trigger } from './global';
 import IS_CLIENT from './is-client';
 import type { Retry } from './retry';
@@ -18,19 +18,32 @@ function getIndex(): number {
 
 const retries = new Map<string, Retry<any>>();
 
-const { assign } = Object;
+// Copies the options that are set, so an `undefined` value keeps the default.
+function withDefaults<T extends object>(defaults: T, options?: Partial<T>): T {
+  const result = { ...defaults };
+  if (options) {
+    for (const [key, value] of Object.entries(options)) {
+      if (value !== undefined) {
+        Reflect.set(result, key, value);
+      }
+    }
+  }
+  return result;
+}
 
 function revalidate<T, P extends any[] = []>(
   fullOpts: SWRFullOptions<T, P>,
   args: P,
   opts?: SWRGetOptions<T>,
 ): MutationResult<T> {
-  const defaultRevalidateOptions: SWRGetOptions<T> = {
-    shouldRevalidate: true,
-    initialData: fullOpts.initialData,
-    hydrate: false,
-  };
-  const revalidateOptions: SWRGetOptions<T> = assign({}, defaultRevalidateOptions, opts);
+  const { shouldRevalidate, initialData, hydrate } = withDefaults<SWRGetOptions<T>>(
+    {
+      shouldRevalidate: true,
+      initialData: fullOpts.initialData,
+      hydrate: false,
+    },
+    opts,
+  );
   // Parse key
   const generatedKey = fullOpts.key(...args);
 
@@ -40,28 +53,39 @@ function revalidate<T, P extends any[] = []>(
   // Get current mutation
   let currentMutation = getMutation<T>(generatedKey);
 
+  // Initial data that is not written to the cache is only a placeholder.
+  // It is never fresh, so it does not stop the first fetch.
+  let isPlaceholder = false;
+
   // Hydrate mutation
-  if (!currentMutation && revalidateOptions.initialData) {
+  if (!currentMutation && initialData !== undefined) {
     currentMutation = {
       result: {
-        data: revalidateOptions.initialData,
+        data: initialData,
         status: 'success',
       },
       timestamp,
       isValidating: false,
     };
 
-    if (revalidateOptions.hydrate) {
+    if (hydrate) {
       setMutation(generatedKey, currentMutation);
+    } else {
+      isPlaceholder = true;
     }
   }
 
   if (currentMutation) {
-    if (!revalidateOptions.shouldRevalidate) {
+    if (!shouldRevalidate) {
       return currentMutation.result;
     }
-    // If mutation is still fresh, return mutation
-    if (currentMutation.timestamp + fullOpts.freshAge > timestamp) {
+    if (isPlaceholder) {
+      // A fetch for this key is already running and will fill the cache.
+      if (retries.has(generatedKey)) {
+        return currentMutation.result;
+      }
+    } else if (currentMutation.timestamp + fullOpts.freshAge > timestamp) {
+      // If mutation is still fresh, return mutation
       return currentMutation.result;
     }
 
@@ -96,8 +120,15 @@ function revalidate<T, P extends any[] = []>(
 
   // Watch for promise resolutions
   // to update cache data
+  const clearRetry = (): void => {
+    if (retries.get(generatedKey) === pendingRetry) {
+      retries.delete(generatedKey);
+    }
+  };
+
   pendingData.then(
     (data) => {
+      clearRetry();
       const mutation = getMutation<T>(generatedKey);
 
       const shouldUpdate = (): boolean => {
@@ -135,6 +166,7 @@ function revalidate<T, P extends any[] = []>(
       }
     },
     (data: unknown) => {
+      clearRetry();
       const mutation = getMutation<T>(generatedKey);
 
       const shouldUpdate = (): boolean => {
@@ -371,7 +403,10 @@ function lazyUnregister(cleanups: Map<string, Cleanups>, generatedKey: string): 
 export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
 ): SWRStore<T, P> {
-  const fullOpts: SWRFullOptions<T, P> = assign({}, DEFAULT_CONFIG, options);
+  const fullOpts: SWRFullOptions<T, P> = {
+    ...options,
+    ...withDefaults(getDefaultConfig<T, P>(), options),
+  };
   const cleanups = new Map<string, Cleanups>();
 
   return {
