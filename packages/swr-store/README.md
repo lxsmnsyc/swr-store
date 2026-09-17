@@ -8,6 +8,8 @@ A store wraps an async function. Reading the store returns the cached result rig
 
 The package has no framework dependency. Bindings for React, Preact and Solid ship as separate entry points.
 
+Upgrading from 0.10? See the [migration guide](https://github.com/lxsmnsyc/swr-store/blob/main/packages/swr-store/MIGRATION.md).
+
 ## Install
 
 ```bash

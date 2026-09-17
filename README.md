@@ -21,6 +21,8 @@ The framework peer dependencies are optional. Install only the one you use.
 
 The `react-swr-store`, `preact-swr-store` and `solid-swr-store` packages are replaced by these entry points.
 
+See the [migration guide](https://github.com/lxsmnsyc/swr-store/blob/main/packages/swr-store/MIGRATION.md) to upgrade from 0.10.
+
 ## Development
 
 ```bash

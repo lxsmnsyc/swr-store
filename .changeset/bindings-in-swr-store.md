@@ -4,6 +4,8 @@
 
 The React, Preact and Solid bindings now ship inside `swr-store`.
 
+See the [migration guide](https://github.com/lxsmnsyc/swr-store/blob/main/packages/swr-store/MIGRATION.md) for how to upgrade.
+
 - Import them from `swr-store/react`, `swr-store/preact` and `swr-store/solid`. They replace the `react-swr-store`, `preact-swr-store` and `solid-swr-store` packages.
 - `react`, `preact` and `solid-js` are optional peer dependencies. Install only the one you use.
 - The React binding supports React 18 and 19, and the Preact binding needs Preact 10.11 or later. Both use `useSyncExternalStore`. `SWRStoreRoot` is removed, since the hooks no longer need it.
