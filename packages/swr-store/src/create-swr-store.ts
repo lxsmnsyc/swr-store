@@ -1,15 +1,18 @@
 import type { Mutation, MutationPending, MutationResult } from './cache/mutation-cache';
 import {
+  getLastWriteVersion,
   getMutation,
-  getVersion,
   nextVersion,
+  pinKey,
   setMutation,
   setMutationDeferred,
+  unpinKey,
 } from './cache/mutation-cache';
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
 import getDefaultConfig, { serializeKey } from './default-config';
 import { mutate, subscribe, trigger } from './global';
 import IS_CLIENT, { HAS_DOCUMENT, HAS_WINDOW_EVENTS } from './is-client';
+import createLazyPromise from './lazy-promise';
 import type { Retry } from './retry';
 import retry from './retry';
 import { setServerRead } from './server-read';
@@ -145,14 +148,20 @@ function revalidate<T, P extends any[] = []>(
   };
   const fetch: Fetch<T> = { retry: pendingRetry, result, startedAt: now };
   fetches.set(generatedKey, fetch);
+  pinKey(generatedKey);
 
   // The old fetch stops retrying, and its promise settles with the new one,
   // so whoever waits on it still gets data.
   running?.retry.cancel(pendingData);
 
   let returned: MutationResult<T>;
-  if (currentMutation && currentMutation.timestamp + fullOpts.freshAge + fullOpts.staleAge > now) {
-    // Stale: keep the cached result while the fetch runs.
+  if (
+    currentMutation &&
+    currentMutation.result.status !== 'failure' &&
+    currentMutation.timestamp + fullOpts.freshAge + fullOpts.staleAge > now
+  ) {
+    // Stale: keep the cached result while the fetch runs. A failure has no
+    // stale time, so a retry shows as pending instead of the old error.
     returned = currentMutation.result;
     setMutationDeferred(generatedKey, { ...currentMutation, isValidating: true });
   } else if (currentMutation) {
@@ -174,11 +183,10 @@ function revalidate<T, P extends any[] = []>(
     if (fetches.get(generatedKey) === fetch) {
       fetches.delete(generatedKey);
     }
-    const latest = getMutation<T>(generatedKey);
-    if (latest && getVersion(latest) > version) {
-      return;
+    if (getLastWriteVersion(generatedKey) <= version) {
+      setMutation(generatedKey, write(getMutation<T>(generatedKey)));
     }
-    setMutation(generatedKey, write(latest));
+    unpinKey(generatedKey);
   };
 
   pendingData.then(
@@ -206,25 +214,6 @@ function revalidate<T, P extends any[] = []>(
   );
 
   return returned;
-}
-
-// A promise that calls `start` the first time it is awaited or chained.
-// It cannot be an `async` function, because awaiting the returned object
-// would call `then` and start the work right away.
-// oxlint-disable-next-line typescript/promise-function-async
-function createLazyPromise<T>(start: () => Promise<T>): Promise<T> {
-  let promise: Promise<T> | undefined;
-  const get = async (): Promise<T> => {
-    promise ??= start();
-    return promise;
-  };
-  return {
-    [Symbol.toStringTag]: 'Promise',
-    // oxlint-disable-next-line unicorn/no-thenable
-    then: async (onFulfilled, onRejected) => get().then(onFulfilled, onRejected),
-    catch: async (onRejected) => get().catch(onRejected),
-    finally: async (onFinally) => get().finally(onFinally),
-  };
 }
 
 type Cleanup = () => void;
@@ -282,7 +271,9 @@ function register<T, P extends any[] = []>(
       });
     }
 
-    if (fullOpts.refreshWhenHidden || fullOpts.refreshWhenBlurred || fullOpts.refreshWhenOffline) {
+    // When none of the chosen states can be detected here, polling runs all
+    // the time, as if no state was chosen.
+    if (states.length > 0) {
       // One interval runs while the page is in any of the states. The check
       // runs on every related event and once at the start, so polling begins
       // right away when the page is already in one of them.
@@ -361,7 +352,8 @@ export default function createSWRStore<T, P extends any[] = []>(
   // The default key starts with the store name, or the store id when there is
   // no name, so two stores called with the same arguments do not share a
   // cache entry.
-  const prefix = options.name ?? id;
+  // Names and ids get different tags, so a name can never match an id.
+  const prefix = options.name === undefined ? `id:${id}` : `name:${options.name}`;
   defaults.key = (...args: P): string => `${prefix}:${serializeKey(args)}`;
 
   const fullOpts: SWRFullOptions<T, P> = {

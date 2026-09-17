@@ -87,16 +87,25 @@ export function useSWRStore<T, P extends any[] = []>(
   useDebugValue(value);
 
   if (suspense) {
-    if (value.status === 'success') {
-      return value.data;
+    // A cached failure is revalidated first. The component never mounts
+    // while it throws, so the revalidation after mounting would never run,
+    // and resetting an error boundary would show the same error forever.
+    const shown = value.status === 'failure' ? current.external.retryFailure() : value;
+    if (shown.status === 'success') {
+      return shown.data;
+    }
+    if (shown.status === 'failure') {
+      throw shown.data;
     }
     // The server has no cache, so the read after suspending would start a
     // new fetch and suspend again, forever. Fail instead, which makes the
     // nearest Suspense boundary render on the client.
-    if (value.status === 'pending' && !IS_CLIENT) {
+    if (!IS_CLIENT) {
       throw new Error(SERVER_SUSPENSE_ERROR);
     }
-    throw value.data;
+    // Suspense works by throwing the promise to wait on.
+    // oxlint-disable-next-line typescript/only-throw-error
+    throw current.external.wait(shown);
   }
   return value;
 }

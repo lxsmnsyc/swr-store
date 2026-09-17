@@ -15,12 +15,15 @@ export interface ReactiveCache<T> {
   scheduled: Set<string>;
 }
 
-export function createReactiveCache<T>(maxSize = DEFAULT_CACHE_SIZE): ReactiveCache<T> {
+export function createReactiveCache<T>(
+  maxSize = DEFAULT_CACHE_SIZE,
+  isProtected: (key: string) => boolean = () => false,
+): ReactiveCache<T> {
   const subscribers = new Map<string, Set<ReactiveCacheListener<T>>>();
   return {
     // Entries with subscribers stay, so subscribers never hold a value that
-    // is no longer in the cache.
-    cache: new LRUMap(maxSize, (key) => !subscribers.has(key)),
+    // is no longer in the cache. `isProtected` can keep more entries.
+    cache: new LRUMap(maxSize, (key) => !(subscribers.has(key) || isProtected(key))),
     subscribers,
     scheduled: new Set(),
   };
@@ -91,8 +94,11 @@ function notifyReactiveCache<T>(cache: ReactiveCache<T>, key: string): void {
   const subscribers = cache.subscribers.get(key);
   if (ref && subscribers) {
     // Copy first, so a listener that unsubscribes does not skip another.
+    // A listener removed by an earlier one in this loop is not called.
     for (const listener of Array.from(subscribers)) {
-      listener(ref.value);
+      if (subscribers.has(listener)) {
+        listener(ref.value);
+      }
     }
   }
 }

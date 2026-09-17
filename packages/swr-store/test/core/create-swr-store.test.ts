@@ -544,7 +544,7 @@ describe('options', () => {
     const first = createSWRStore<string, [string]>({ name, get });
     const second = createSWRStore<string, [string]>({ name, get });
 
-    expect(first.getKey(['a'])).toBe(`${name}:["a"]`);
+    expect(first.getKey(['a'])).toBe(`name:${name}:["a"]`);
     await first.get(['a']).data;
     expect(second.get(['a'])).toEqual({ status: 'success', data: 'a' });
     expect(get).toHaveBeenCalledTimes(1);
@@ -669,5 +669,196 @@ describe('default key', () => {
     expect(store.getKey([{ a: 1, b: { c: 2, d: 3 } }])).toBe(
       store.getKey([{ b: { d: 3, c: 2 }, a: 1 }]),
     );
+  });
+});
+
+describe('eviction', () => {
+  it('keeps the entry of a key with a running fetch', async () => {
+    setCacheSize(1);
+    try {
+      const prefix = uniqueKey('evict-running');
+      const holder = createSWRStore<string>({
+        key: () => `${prefix}-held`,
+        get: async () => 'held',
+      });
+      await holder.get([]).data;
+      const unsubscribe = holder.subscribe([], vi.fn());
+
+      const deferred = createDeferred<string>();
+      const get = vi.fn(async () => deferred.promise);
+      const store = createSWRStore<string>({ key: () => `${prefix}-fetched`, get });
+
+      store.get([]);
+      holder.mutate([], { status: 'success', data: 'other' }, false);
+      expect(store.get([]).status).toBe('pending');
+      expect(get).toHaveBeenCalledTimes(1);
+
+      deferred.resolve('value');
+      await flush();
+      expect(store.get([], { shouldRevalidate: false })).toEqual({
+        status: 'success',
+        data: 'value',
+      });
+      unsubscribe();
+    } finally {
+      setCacheSize(1000);
+    }
+  });
+
+  it('drops a fetch that started before a write whose entry was evicted', async () => {
+    const prefix = uniqueKey('evict-version');
+    const deferred = createDeferred<string>();
+    const store = createSWRStore<string>({
+      key: () => `${prefix}-a`,
+      get: async () => deferred.promise,
+    });
+    const other = createSWRStore<string>({ key: () => `${prefix}-b`, get: async () => 'b' });
+
+    store.get([]);
+    store.mutate([], { status: 'success', data: 'optimistic' }, false);
+    setCacheSize(1);
+    try {
+      // The pinned key stays while its fetch runs, so it is evicted only after
+      // this write lands on a full cache that no longer pins it.
+      await other.get([]).data;
+      deferred.resolve('old');
+      await flush();
+      expect(store.get([], { shouldRevalidate: false })).toEqual({
+        status: 'success',
+        data: 'optimistic',
+      });
+    } finally {
+      setCacheSize(1000);
+    }
+  });
+});
+
+describe('notification details', () => {
+  it('does not call a listener removed earlier in the same notification', () => {
+    const key = uniqueKey('removed-listener');
+    const calls: string[] = [];
+    let unsubscribeB = (): void => undefined;
+    const unsubscribeA = subscribe(key, () => {
+      calls.push('a');
+      unsubscribeB();
+    });
+    unsubscribeB = subscribe(key, () => {
+      calls.push('b');
+    });
+
+    mutate(key, { status: 'success', data: 'value' }, false);
+
+    expect(calls).toEqual(['a']);
+    unsubscribeA();
+  });
+
+  it('tells subscribers that validation ended when mutate writes equal data', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('equal-mutate-validating');
+    const deferred = createDeferred<string>();
+    let first = true;
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => {
+        if (first) {
+          first = false;
+          return 'value';
+        }
+        return deferred.promise;
+      },
+      freshAge: 10,
+      staleAge: 10_000,
+    });
+    await store.get([]).data;
+    const listener = vi.fn<(mutation: Mutation<string>) => void>();
+    const unsubscribe = store.subscribe([], listener);
+
+    vi.setSystemTime(Date.now() + 100);
+    store.get([]);
+    await flush();
+    store.mutate([], { status: 'success', data: 'value' }, false);
+    deferred.resolve('value');
+    await flush();
+
+    expect(listener.mock.calls.at(-1)?.[0].isValidating).toBe(false);
+    unsubscribe();
+  });
+
+  it('shows a retry of a stale failure as pending', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('stale-failure');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => 'value',
+      freshAge: 10,
+      staleAge: 10_000,
+    });
+    store.mutate([], { status: 'failure', data: new Error('failed') }, false);
+
+    vi.setSystemTime(Date.now() + 100);
+    expect(store.get([]).status).toBe('pending');
+  });
+});
+
+describe('retry timing', () => {
+  it('lets maxRetryInterval cap waits below 10 milliseconds', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn(async () => {
+      throw new Error('failed');
+    });
+    const store = createSWRStore<string>({
+      key: () => uniqueKey('short-retry'),
+      get,
+      maxRetryCount: 5,
+      maxRetryInterval: 2,
+    });
+
+    const result = store.get([]);
+    if (result.status === 'pending') {
+      result.data.catch(() => undefined);
+    }
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(get).toHaveBeenCalledTimes(6);
+    vi.useRealTimers();
+  });
+});
+
+describe('default key details', () => {
+  it('keeps names and ids apart', () => {
+    const unnamed = createSWRStore<string>({ get: async () => 'value' });
+    const named = createSWRStore<string>({ name: unnamed.id, get: async () => 'value' });
+
+    expect(named.getKey([])).not.toBe(unnamed.getKey([]));
+  });
+
+  it('covers values JSON handles poorly', () => {
+    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
+    const nullProto = (entries: [string, number][]): object => {
+      const value: Record<string, number> = Object.fromEntries(entries);
+      Object.setPrototypeOf(value, null);
+      return value;
+    };
+
+    expect(
+      store.getKey([
+        nullProto([
+          ['a', 1],
+          ['b', 2],
+        ]),
+      ]),
+    ).toBe(
+      store.getKey([
+        nullProto([
+          ['b', 2],
+          ['a', 1],
+        ]),
+      ]),
+    );
+    expect(store.getKey([Number.NaN])).not.toBe(store.getKey([null]));
+    expect(store.getKey([Number.POSITIVE_INFINITY])).not.toBe(store.getKey([null]));
+    const date = new Date(0);
+    expect(store.getKey([date])).not.toBe(store.getKey([date.toISOString()]));
+    expect(store.getKey([undefined])).not.toBe(store.getKey([{ $undefined: true }]));
   });
 });

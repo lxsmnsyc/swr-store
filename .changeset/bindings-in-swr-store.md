@@ -39,4 +39,15 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - Several polling states now share one interval, and a `refreshInterval` of `0` or less does not poll.
 - The default key now sorts object keys and tells apart `undefined`, `null`, `BigInt`, `Map` and `Set` values.
 - A listener is no longer called twice for the same entry when a read and a write happen before the next microtask.
+- The cache now keeps entries with a running fetch and the entry written last. A suspended component no longer fetches forever when every other entry has subscribers.
+- A fetch now remembers writes to its key even after the entry was evicted, so it can no longer overwrite a newer `mutate`.
+- A `mutate` now ends suspense for React, Preact and Solid components that are waiting on their first fetch.
+- With `suspense`, a failure that is no longer fresh is fetched again during render, so resetting an error boundary can recover. A cached failure no longer has a stale time.
+- A listener removed during a notification is no longer called in that notification. Solid hooks no longer show data for a key they stopped watching.
+- `mutate` with equal data now tells subscribers when `isValidating` goes back to `false`.
+- Solid's `useSWRStore` now fetches on the server when `initialData` is passed as `undefined`, and no longer fetches again on the client after hydrating server data. Its store reads no longer track signals.
+- `maxRetryInterval` now caps retry waits below 10 milliseconds.
+- Polling now runs all the time when none of the chosen `refreshWhen*` states can be detected.
+- Default keys now tag names and ids differently, and the serializer handles `Date`, `NaN`, `Infinity`, objects without a prototype, and object keys that start with `$`.
+- The React hook now suspends with `use` on React 19, and throws the promise on React 18.
 - The package is built with tsdown and targets ES2020. ESM and CommonJS builds are still published, but the separate `development` builds are gone.

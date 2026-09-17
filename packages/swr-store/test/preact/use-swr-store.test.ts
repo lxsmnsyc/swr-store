@@ -223,3 +223,27 @@ describe('Preact stability', () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('Preact suspense recovery', () => {
+  it('shows mutated data while the first fetch is still running', async () => {
+    const key = uniqueKey('preact-mutate-suspended');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () =>
+        new Promise<string>(() => {
+          // Never settles.
+        }),
+    });
+
+    function Data() {
+      return h('p', null, useSWRStore(store, [], { suspense: true }));
+    }
+
+    const view = render(h(Suspense, { fallback: 'loading' }, h(Data, null)));
+    store.mutate([], { status: 'success', data: 'mutated' }, false);
+
+    await waitFor(() => {
+      expect(view.container.textContent).toBe('mutated');
+    });
+  });
+});

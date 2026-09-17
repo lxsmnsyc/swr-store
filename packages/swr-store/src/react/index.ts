@@ -1,10 +1,16 @@
 import type { ReactNode } from 'react';
-import { useDebugValue, useEffect, useState, useSyncExternalStore } from 'react';
+import * as React from 'react';
 import type { MutationResult } from '../cache/mutation-cache';
 import type { ExternalStore } from '../bindings/external-store';
 import { SERVER_SUSPENSE_ERROR, createExternalStore } from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
 import type { SWRStore } from '../types';
+
+// `use` is how React 19 components suspend on a promise. React 18 does not
+// have it, and a named import would fail to load there, so it is read from
+// the module instead. Without it, the hook throws the promise, which React
+// 18 also supports.
+const { use } = React as Partial<Pick<typeof React, 'use'>>;
 
 interface BaseOptions<T> {
   initialData?: T;
@@ -64,7 +70,7 @@ export function useSWRStore<T, P extends any[] = []>(
     external: createExternalStore(store, args, { initialData, shouldRevalidate, hydrate }),
   });
 
-  const [source, setSource] = useState(createSource);
+  const [source, setSource] = React.useState(createSource);
 
   let current = source;
   if (
@@ -76,29 +82,42 @@ export function useSWRStore<T, P extends any[] = []>(
     setSource(current);
   }
 
-  const value = useSyncExternalStore(
+  const value = React.useSyncExternalStore(
     current.external.subscribe,
     current.external.read,
     current.external.readServer,
   );
 
-  useEffect(() => {
+  React.useEffect(() => {
     current.external.revalidate();
   }, [current]);
 
-  useDebugValue(value);
+  React.useDebugValue(value);
 
   if (suspense) {
-    if (value.status === 'success') {
-      return value.data;
+    // A cached failure is revalidated first. The component never mounts
+    // while it throws, so the revalidation after mounting would never run,
+    // and resetting an error boundary would show the same error forever.
+    const shown = value.status === 'failure' ? current.external.retryFailure() : value;
+    if (shown.status === 'success') {
+      return shown.data;
+    }
+    if (shown.status === 'failure') {
+      throw shown.data;
     }
     // The server has no cache, so the read after suspending would start a
     // new fetch and suspend again, forever. Fail instead, which makes the
     // nearest Suspense boundary render on the client.
-    if (value.status === 'pending' && !IS_CLIENT) {
+    if (!IS_CLIENT) {
       throw new Error(SERVER_SUSPENSE_ERROR);
     }
-    throw value.data;
+    const waiter = current.external.wait(shown);
+    if (use) {
+      return use(waiter);
+    }
+    // React 18 suspends when the promise to wait on is thrown.
+    // oxlint-disable-next-line typescript/only-throw-error
+    throw waiter;
   }
   return value;
 }

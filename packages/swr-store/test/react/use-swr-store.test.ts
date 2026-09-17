@@ -1,10 +1,47 @@
+import type { RenderResult } from '@testing-library/react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { StrictMode, Suspense, createElement, useState } from 'react';
+import type { ReactElement, ReactNode } from 'react';
+import { Component, StrictMode, Suspense, createElement, useState } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
-import { createSWRStore } from '../../src';
+import { createSWRStore, setCacheSize } from '../../src';
 import { SWRStoreRoot, useSWRStore } from '../../src/react';
 import { createDeferred, uniqueKey } from '../utils';
+
+// A render that suspends with `use` has to happen inside an awaited `act`,
+// or React does not retry it once the data arrives.
+async function renderSuspending(element: ReactElement): Promise<RenderResult> {
+  let view: RenderResult | undefined;
+  await act(async () => {
+    view = render(element);
+    await Promise.resolve();
+  });
+  if (!view) {
+    throw new Error('render did not run');
+  }
+  return view;
+}
+
+// Like `waitFor`, but each wait runs inside `act`, so React retries renders
+// that suspended with `use` while waiting.
+async function waitInAct(check: () => void): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      check();
+      return;
+    } catch (error) {
+      if (attempt >= 50) {
+        throw error;
+      }
+    }
+    // oxlint-disable-next-line no-await-in-loop
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 10);
+      });
+    });
+  }
+}
 
 describe('useSWRStore', () => {
   it('returns the pending result, then the fetched data', async () => {
@@ -107,7 +144,7 @@ describe('useSWRStore', () => {
       return useSWRStore(store, [], { suspense: true });
     }
 
-    render(createElement(Suspense, { fallback: 'loading' }, createElement(Data)));
+    await renderSuspending(createElement(Suspense, { fallback: 'loading' }, createElement(Data)));
     expect(screen.getByText('loading')).toBeDefined();
 
     await act(async () => {
@@ -192,13 +229,15 @@ describe('rendering', () => {
       return useSWRStore(store, [], { suspense: true });
     }
 
-    render(createElement(Suspense, { fallback: 'loading' }, createElement(Data)));
+    const view = await renderSuspending(
+      createElement(Suspense, { fallback: 'loading' }, createElement(Data)),
+    );
 
     // React may render the component more than once before it commits, and
     // with no fresh time each of those reads fetches. What matters is that
     // the retries end.
-    await waitFor(() => {
-      expect(screen.getByText('ready')).toBeDefined();
+    await waitInAct(() => {
+      expect(view.container.textContent).toBe('ready');
     });
   });
 
@@ -311,7 +350,9 @@ describe('React stability', () => {
       return useSWRStore(store, [], { suspense: true });
     }
 
-    const view = render(createElement(Suspense, { fallback: 'loading' }, createElement(Data)));
+    const view = await renderSuspending(
+      createElement(Suspense, { fallback: 'loading' }, createElement(Data)),
+    );
     view.unmount();
     deferred.resolve('value');
     await deferred.promise;
@@ -344,7 +385,7 @@ describe('React StrictMode', () => {
       return useSWRStore(store, [], { suspense: true });
     }
 
-    const view = render(
+    const view = await renderSuspending(
       createElement(
         StrictMode,
         null,
@@ -366,5 +407,133 @@ describe('React StrictMode', () => {
     // One fetch to show the data, and one revalidation after mounting.
     expect(view.container.textContent).toBe('ready');
     expect(get.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('React suspense recovery', () => {
+  it('finishes when every other cache entry has subscribers', async () => {
+    setCacheSize(1);
+    try {
+      const prefix = uniqueKey('react-full-cache');
+      const holder = createSWRStore<string>({
+        key: () => `${prefix}-held`,
+        get: async () => 'held',
+      });
+      await holder.get([]).data;
+      const unsubscribe = holder.subscribe([], vi.fn());
+      const get = vi.fn(async () => 'value');
+      const store = createSWRStore<string>({ key: () => `${prefix}-read`, get });
+
+      function Data(): string {
+        return useSWRStore(store, [], { suspense: true });
+      }
+
+      const view = await renderSuspending(
+        createElement(Suspense, { fallback: 'loading' }, createElement(Data)),
+      );
+      await waitFor(() => {
+        expect(view.container.textContent).toBe('value');
+      });
+      expect(get).toHaveBeenCalledTimes(1);
+      unsubscribe();
+    } finally {
+      setCacheSize(1000);
+    }
+  });
+
+  it('shows mutated data while the first fetch is still running', async () => {
+    const key = uniqueKey('react-mutate-suspended');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () =>
+        new Promise<string>(() => {
+          // Never settles.
+        }),
+    });
+
+    function Data(): string {
+      return useSWRStore(store, [], { suspense: true });
+    }
+
+    const view = await renderSuspending(
+      createElement(Suspense, { fallback: 'loading' }, createElement(Data)),
+    );
+    expect(view.container.textContent).toBe('loading');
+
+    await act(async () => {
+      store.mutate([], { status: 'success', data: 'mutated' }, false);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 20);
+      });
+    });
+
+    await waitFor(() => {
+      expect(view.container.textContent).toBe('mutated');
+    });
+  });
+
+  it('fetches again when an error boundary resets', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('react-error-reset');
+    let calls = 0;
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error('failed');
+        }
+        return 'ok';
+      },
+      maxRetryCount: 0,
+      freshAge: 1000,
+      staleAge: 0,
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    let reset = (): void => undefined;
+    class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+      state = { failed: false };
+
+      static getDerivedStateFromError(): { failed: boolean } {
+        return { failed: true };
+      }
+
+      render(): ReactNode {
+        reset = () => {
+          this.setState({ failed: false });
+        };
+        return this.state.failed ? 'error' : this.props.children;
+      }
+    }
+
+    function Data(): string {
+      return useSWRStore(store, [], { suspense: true });
+    }
+
+    const view = await renderSuspending(
+      createElement(
+        Boundary,
+        null,
+        createElement(Suspense, { fallback: 'loading' }, createElement(Data)),
+      ),
+    );
+    await waitFor(() => {
+      expect(view.container.textContent).toBe('error');
+    });
+
+    // Within `freshAge`, the failure is still shown. Once it is no longer
+    // fresh, resetting the boundary fetches again.
+    vi.setSystemTime(Date.now() + 2000);
+    await act(async () => {
+      reset();
+      await Promise.resolve();
+    });
+    await waitInAct(() => {
+      expect(view.container.textContent).toBe('ok');
+    });
+    expect(calls).toBe(2);
+    spy.mockRestore();
+    vi.useRealTimers();
   });
 });

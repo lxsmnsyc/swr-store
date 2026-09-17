@@ -39,8 +39,9 @@ export function mutate<T>(
   ) {
     // Same data, so only the age resets and subscribers are not notified.
     // A fetch that is still running started before this write, so the entry
-    // is no longer waiting on it.
-    setMutation(key, { ...current, timestamp, isValidating: false }, false);
+    // is no longer waiting on it. Subscribers only hear about it when
+    // `isValidating` changes.
+    setMutation(key, { ...current, timestamp, isValidating: false }, current.isValidating);
   } else {
     setMutation(key, {
       result: data,

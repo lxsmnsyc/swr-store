@@ -75,11 +75,15 @@ Reading a store returns a `MutationResult<T>`. Check `status` to find out what `
 
 In the browser, every store writes to one global cache. The `key` option turns the store arguments into a cache key.
 
-- By default the key is the store `name` followed by the serialized arguments. Without a `name`, the store's id is used instead, and two stores never share an entry through their default keys.
-- The default serialization is JSON with a few changes. Object keys are sorted, so `{ a, b }` and `{ b, a }` give the same key. `undefined`, `BigInt`, `Map` and `Set` values are written in a tagged form, so they do not collide with `null`, strings or empty objects. Circular values still throw.
+- By default the key is the store `name` followed by the serialized arguments. Without a `name`, the store's id is used instead, and two stores never share an entry through their default keys. Names and ids are tagged differently, so a name never matches an id.
+- The default serialization is JSON with a few changes:
+  - Object keys are sorted, so `{ a, b }` and `{ b, a }` give the same key. This includes objects without a prototype.
+  - `undefined`, `NaN`, `Infinity`, `BigInt`, `Date`, `Map` and `Set` values are written in a tagged form, so they do not collide with `null`, strings or empty objects.
+  - Object keys that start with `$` get an extra `$`, so a plain object never matches a tag.
+  - Circular values still throw.
 - Stores with a custom `key` share an entry when they produce the same key.
 - The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
-- The cache keeps up to 1000 entries. When it is full, the least recently used entry without subscribers is removed. Change the limit with [`setCacheSize`](#setcachesizesize).
+- The cache keeps up to 1000 entries. When it is full, the least recently used entry is removed. Entries with subscribers or a running fetch are kept, and so is the entry written last. Change the limit with [`setCacheSize`](#setcachesizesize).
 
 The store id comes from a counter, so it changes every time the store is created. Create stores once at module level. When a store has to be created inside a function or component, set `name` so every instance uses the same entries.
 
@@ -115,6 +119,8 @@ Each cache entry has a timestamp from when it was last written, such as when its
 | Less than `freshAge + staleAge` | Stale   | Returns the cached result and refetches in the background. |
 | Older                           | Expired | Starts a fetch and returns a new pending result.           |
 
+A cached failure has no stale time. Once it is no longer fresh, a read returns a new pending result instead of the old error.
+
 - `freshAge` defaults to `2000` milliseconds.
 - `staleAge` defaults to `30000` milliseconds.
 - Ages are only checked when the store is read or revalidated. Nothing expires on a timer.
@@ -139,7 +145,7 @@ Events, polling and `trigger` fetch with the arguments of the newest subscriber 
 
 Event listeners and polling start when a store gets its first subscriber for a key. They stop when that store's last subscriber for the key unsubscribes. Each store manages its own, even when stores share a key.
 
-They only run on the client. An option is skipped when its events are missing, such as window focus in React Native or `document` visibility in a web worker.
+They only run on the client. An event option is skipped when its events are missing, such as window focus in React Native or `document` visibility in a web worker.
 
 ### Events
 
@@ -159,7 +165,7 @@ Set `refreshInterval` to a number of milliseconds, greater than `0`, to revalida
 - `refreshWhenBlurred` polls only while the window is not focused.
 - `refreshWhenOffline` polls only while the browser is offline.
 
-When one or more of these options is set, a single interval runs while the page is in any of those states. Polling starts right away when the page is already in one of them.
+When one or more of these options is set, a single interval runs while the page is in any of those states. Polling starts right away when the page is already in one of them. When none of the chosen states can be detected, such as in React Native, polling runs all the time.
 
 ## Initial data and hydration
 
@@ -180,6 +186,8 @@ By default initial data is only a placeholder.
 
 Pass `hydrate: true` to write it to the cache instead. The entry then follows the cache age rules like fetched data. Use this when the value is known to be current, such as data the server rendered with.
 
+Hydrating counts as a write. A fetch for the key that started before it is dropped when it settles, so the hydrated value stays.
+
 ```ts
 userStore.get(['123'], {
   initialData: prefetchedUser,
@@ -194,7 +202,7 @@ You can also write to the cache directly with `mutate`.
 When `get` throws or rejects, the store retries with exponential backoff.
 
 - The first retry waits 10 milliseconds, and each wait doubles.
-- `maxRetryInterval` caps the wait. It defaults to `5000` milliseconds.
+- `maxRetryInterval` caps the wait, even below 10 milliseconds. It defaults to `5000` milliseconds. Attempts are always at least 1 millisecond apart.
 - `maxRetryCount` limits the number of retries. By default the browser retries until the fetch succeeds, and the server does not retry.
 
 The result stays pending while the store retries. It becomes a failure once the retries run out.
@@ -324,7 +332,7 @@ The same as `store.mutate`, for a cache key.
 
 Sets how many entries the client cache keeps. It must be a positive integer. The default is `1000`. When the cache holds more entries, the least recently used ones are removed right away.
 
-- Entries with subscribers are never removed. The cache can grow past the limit while more entries than that have subscribers.
+- Entries with subscribers or a running fetch are never removed, and neither is the entry written last. The cache can grow past the limit while more entries than that are kept.
 - A removed entry is fetched again the next time it is read.
 
 ### `subscribe(key, listener)`
@@ -397,6 +405,9 @@ For Preact, import from `swr-store/preact` and take `Suspense` from `preact/comp
 
 - Without `suspense`, the hook returns the `MutationResult<T>`.
 - Rendering only reads the cache. It starts a fetch only when there is nothing to show. The hook revalidates once, after the component mounts. A render retried after suspending therefore shows the data it waited for, even when that data has already expired.
+- On React 19, the hook suspends with `use`. React 18 has no `use`, so there the hook throws the promise to wait on, which React 18 also supports. Preact always throws the promise.
+- A suspended component waits for its fetch or for the next write to its cache entry, whichever comes first. A `mutate` ends the suspense even when the fetch is still running.
+- With `suspense`, a cached failure is thrown while it is fresh. After that, rendering fetches again and suspends. Resetting an error boundary therefore retries once the failure is older than `freshAge`.
 - The hook compares cache keys, so passing new `args` objects with the same contents each render does not refetch. `initialData` and `hydrate` only apply to the first read for a key, so a new `initialData` object each render is fine.
 - `suspense` can be a `boolean` variable. The return type is then `T | MutationResult<T>`.
 - During hydration, the React hook first renders what the server rendered, which is `initialData` or the pending result. It then updates to the cached result. This keeps the first client render matching the server HTML.
@@ -442,7 +453,8 @@ export default function App() {
 }
 ```
 
-- `useSWRStore(store, args, options?)` returns a `Resource<T | undefined>`. It suspends while pending and holds the error on failure.
+- `useSWRStore(store, args, options?)` returns a `Resource<T | undefined>`. It suspends while pending and holds the error on failure. Like the React hook, a `mutate` ends the suspense even when the fetch is still running.
+- During hydration, `useSWRStore` uses the data from server rendering and writes it to the cache, instead of fetching it again.
 - `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `MutationResult<T>` and never suspends.
 
 Both accept `initialData`, `shouldRevalidate` and `hydrate`, with the same meaning as in [`store.get`](#storegetargs-options).

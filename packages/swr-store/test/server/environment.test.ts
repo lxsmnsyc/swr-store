@@ -56,4 +56,29 @@ describe('environment detection', () => {
     expect(store.get([]).status).toBe('pending');
     expect(get).toHaveBeenCalledTimes(1);
   });
+  it('polls all the time when a chosen polling state cannot be detected', async () => {
+    vi.stubGlobal('window', {});
+    vi.useFakeTimers();
+    try {
+      vi.resetModules();
+      const { createSWRStore } = await import('../../src');
+      const get = vi.fn(async () => 'value');
+      const store = createSWRStore<string>({
+        name: 'polling-fallback',
+        get,
+        freshAge: 0,
+        staleAge: 0,
+        refreshInterval: 1000,
+        refreshWhenBlurred: true,
+      });
+      await store.get([]).data;
+
+      const unsubscribe = store.subscribe([], vi.fn());
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(get).toHaveBeenCalledTimes(2);
+      unsubscribe();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

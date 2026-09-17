@@ -1,4 +1,5 @@
-import type { MutationResult } from '../cache/mutation-cache';
+import type { MutationPending, MutationResult } from '../cache/mutation-cache';
+import { subscribe } from '../global';
 import { getServerRead } from '../server-read';
 import type { SWRStore } from '../types';
 
@@ -16,8 +17,72 @@ export interface ExternalStore<T> {
   // What the server rendered. Used during hydration.
   readServer: () => MutationResult<T>;
   subscribe: (notify: () => void) => () => void;
+  // Revalidates a failure during render, so a component that throws it can
+  // recover once the failure is no longer fresh.
+  retryFailure: () => MutationResult<T>;
+  // A promise that settles when a pending result can be shown.
+  wait: (pending: MutationPending<T>) => Promise<T>;
   // Revalidates the entry once. Call it after the component mounts.
   revalidate: () => void;
+}
+
+const WAITERS = new WeakMap<MutationPending<unknown>, Promise<unknown>>();
+
+// Returns a promise for a suspended component to wait on. It settles when the
+// pending result's fetch settles or when the cache entry is written, whichever
+// comes first. A component suspended on its first mount is not subscribed, so
+// without this, a `mutate` would not end the suspense.
+//
+// The promise resolves with the data once the entry holds a success, and
+// rejects with the error of a failure. It is shared by every render that
+// waits on the same pending result.
+// oxlint-disable-next-line typescript/promise-function-async
+export function waitForResult<T, P extends any[]>(
+  store: SWRStore<T, P>,
+  args: P,
+  pending: MutationPending<T>,
+  read: () => MutationResult<T>,
+): Promise<T> {
+  const existing = WAITERS.get(pending);
+  if (existing) {
+    // Waiters are stored by their own pending result, so the types match.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    return existing as Promise<T>;
+  }
+  const waiter = new Promise<T>((resolve, reject) => {
+    let done = false;
+    const subscription = { unsubscribe: (): void => undefined };
+    const check = (): void => {
+      if (done) {
+        return;
+      }
+      const next = read();
+      // A write that keeps the same pending result, such as the fetch's own
+      // bookkeeping, changes nothing. Keep waiting.
+      if (next === pending) {
+        return;
+      }
+      done = true;
+      subscription.unsubscribe();
+      if (next.status === 'success') {
+        resolve(next.data);
+      } else if (next.status === 'failure') {
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+        reject(next.data);
+      } else {
+        waitForResult(store, args, next, read).then(resolve, reject);
+      }
+    };
+    subscription.unsubscribe = subscribe(store.getKey(args), check);
+    // When the fetch settles, its result is read from the cache. A fetch
+    // whose result was dropped for a newer write still ends the wait here,
+    // and the read shows that write instead.
+    pending.data.then(check, check);
+  });
+  // The waiter may be dropped without anyone handling its rejection.
+  waiter.catch(() => undefined);
+  WAITERS.set(pending, waiter);
+  return waiter;
 }
 
 export function isSameResult<T>(a: MutationResult<T>, b: MutationResult<T>): boolean {
@@ -90,6 +155,15 @@ export function createExternalStore<T, P extends any[] = []>(
       }
       return unsubscribe;
     },
+    retryFailure: (): MutationResult<T> => {
+      const next = read(true);
+      if (!isSameResult(current, next)) {
+        current = next;
+      }
+      return current;
+    },
+    // oxlint-disable-next-line typescript/promise-function-async
+    wait: (pending): Promise<T> => waitForResult(store, args, pending, () => read(false)),
     revalidate: (): void => {
       // Only once. React runs effects again when suspended content comes
       // back, and in StrictMode on every mount. Revalidating each time would

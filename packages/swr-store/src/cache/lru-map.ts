@@ -201,7 +201,9 @@ export default class LRUMap<K, V> implements Map<K, V> {
     let node = this.tail;
     while (this.nodes.size > this.limit && node) {
       const { prev } = node;
-      if (!this.canEvict || this.canEvict(node.key, node.value)) {
+      // The most recently used entry always stays, so a value that was just
+      // written can be read back before the next write.
+      if (node !== this.head && (!this.canEvict || this.canEvict(node.key, node.value))) {
         this.unlink(node);
         this.nodes.delete(node.key);
       }

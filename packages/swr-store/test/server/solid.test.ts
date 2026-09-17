@@ -44,4 +44,26 @@ describe('Solid on the server', () => {
     expect(html).toContain('initial');
     expect(get).not.toHaveBeenCalled();
   });
+  it('fetches when initialData is passed as undefined', async () => {
+    const key = uniqueKey('solid-server-undefined-initial');
+    const get = vi.fn(async () => 'fetched');
+    const store = createSWRStore<string>({ key: () => key, get });
+
+    function Data() {
+      const data = useSWRStore(store, (): [] => [], { initialData: undefined });
+      return data();
+    }
+
+    const html = await renderToStringAsync(() =>
+      createComponent(Suspense, {
+        fallback: 'loading',
+        get children() {
+          return createComponent(Data, {});
+        },
+      }),
+    );
+
+    expect(html).toContain('fetched');
+    expect(get).toHaveBeenCalledTimes(1);
+  });
 });

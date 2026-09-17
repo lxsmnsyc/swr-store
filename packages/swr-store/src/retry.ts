@@ -42,13 +42,17 @@ export default function retry<T>(supplier: () => Promise<T>, options: RetryOptio
 
   const resolvable = createResolvable<T>();
 
-  const backoff = (timeout = 10, count = 0): void => {
+  // Waits start at 10 milliseconds and double, capped by `interval`, with at
+  // least 1 millisecond between attempts.
+  const cap = (timeout: number): number => Math.max(1, Math.min(options.interval, timeout));
+
+  const backoff = (timeout = cap(10), count = 0): void => {
     const handle = (reason: unknown): void => {
       if (!alive || (typeof options.count === 'number' && options.count <= count)) {
         resolvable.reject(reason);
       } else {
         schedule = setTimeout(() => {
-          backoff(Math.max(10, Math.min(options.interval, timeout * 2)), count + 1);
+          backoff(cap(timeout * 2), count + 1);
         }, timeout);
       }
     };
