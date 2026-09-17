@@ -2,6 +2,7 @@ import type { Resource } from 'solid-js';
 import { createEffect, createResource, createSignal, onCleanup } from 'solid-js';
 import type { MutationResult } from '../cache/mutation-cache';
 import { isSameArgs, isSameResult } from '../bindings/external-store';
+import IS_CLIENT from '../is-client';
 import type { SWRStore } from '../types';
 
 export interface UseSWRStoreOptions<T> {
@@ -50,6 +51,36 @@ export function useSWRStore<T, P extends any[] = []>(
   args: () => P,
   options: UseSWRStoreOptions<T> = {},
 ): Resource<T | undefined> {
+  const resourceOptions =
+    'initialData' in options
+      ? {
+          initialValue: options.initialData,
+          ssrLoadFrom: 'initial' as const,
+        }
+      : {};
+
+  // The server has no cache, so reading the store outside the fetcher would
+  // start a new fetch every time the component renders. Solid runs the
+  // fetcher once per resource, so the read goes there instead.
+  if (!IS_CLIENT) {
+    const [serverResource] = createResource(
+      args,
+      async (currentArgs): Promise<T> => {
+        const result = store.get(currentArgs, {
+          shouldRevalidate: options.shouldRevalidate,
+          initialData: options.initialData,
+          hydrate: options.hydrate,
+        });
+        if (result.status === 'failure') {
+          throw result.data;
+        }
+        return result.data;
+      },
+      resourceOptions,
+    );
+    return serverResource;
+  }
+
   const suspenseless = useSWRStoreSuspenseless(store, args, options);
   const [resource] = createResource(
     suspenseless,
@@ -59,12 +90,7 @@ export function useSWRStore<T, P extends any[] = []>(
       }
       return result.data;
     },
-    'initialData' in options
-      ? {
-          initialValue: options.initialData,
-          ssrLoadFrom: 'initial',
-        }
-      : {},
+    resourceOptions,
   );
   return resource;
 }

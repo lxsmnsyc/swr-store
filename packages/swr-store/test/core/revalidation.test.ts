@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSWRStore } from '../../src';
 import { uniqueKey } from '../utils';

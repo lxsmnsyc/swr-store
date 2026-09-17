@@ -16,11 +16,3 @@ export function subscribeRevalidation(key: string, listener: RevalidationListene
 export function setRevalidation(key: string, value: boolean, notify = true): void {
   setReactiveCacheValue(REVALIDATION_CACHE, key, value, notify);
 }
-
-export function getRevalidation(key: string): boolean | undefined {
-  const result = REVALIDATION_CACHE.cache.get(key);
-  if (result) {
-    return result.value;
-  }
-  return undefined;
-}

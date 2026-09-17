@@ -2,6 +2,7 @@ import type { ReactiveCacheListener } from './reactive-cache';
 import {
   createReactiveCache,
   getReactiveCacheListenerSize,
+  getReactiveCacheValue,
   setReactiveCacheValue,
   subscribeReactiveCache,
 } from './reactive-cache';
@@ -39,11 +40,7 @@ export function setMutation<T>(key: string, value: Mutation<T>): void {
 }
 
 export function getMutation<T>(key: string): Mutation<T> | undefined {
-  const result = MUTATION_CACHE.cache.get(key);
-  if (result) {
-    return result.value;
-  }
-  return undefined;
+  return getReactiveCacheValue(MUTATION_CACHE, key);
 }
 
 export function getMutationListenerSize(key: string): number {

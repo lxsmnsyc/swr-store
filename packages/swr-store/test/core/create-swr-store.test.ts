@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSWRStore, mutate, subscribe, trigger } from '../../src';
+import { createSWRStore, mutate, setCacheSize, subscribe, trigger } from '../../src';
 import { createDeferred, flush, uniqueKey } from '../utils';
 
 afterEach(() => {
@@ -360,5 +360,30 @@ describe('subscriptions', () => {
     mutate(key, { status: 'success', data: { id: 1 } }, false, () => false);
     expect(listener).toHaveBeenCalledTimes(2);
     unsubscribe();
+  });
+});
+
+describe('setCacheSize', () => {
+  it('removes the least recently used entries', async () => {
+    setCacheSize(2);
+    try {
+      const prefix = uniqueKey('lru');
+      const get = vi.fn(async (id: string) => id);
+      const store = createSWRStore<string, [string]>({
+        key: (id) => `${prefix}-${id}`,
+        get,
+      });
+
+      await store.get(['a']).data;
+      await store.get(['b']).data;
+      store.get(['a']);
+      await store.get(['c']).data;
+
+      expect(store.get(['a'])).toEqual({ status: 'success', data: 'a' });
+      // `b` was the least recently used entry, so it has to be fetched again.
+      expect(store.get(['b']).status).toBe('pending');
+    } finally {
+      setCacheSize(1000);
+    }
   });
 });

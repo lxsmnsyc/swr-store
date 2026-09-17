@@ -44,6 +44,25 @@ function revalidate<T, P extends any[] = []>(
     },
     opts,
   );
+  // The server has no cache, so every read is on its own. Initial data is
+  // returned as is, and anything else starts a fetch that no other read
+  // shares.
+  if (!IS_CLIENT) {
+    if (initialData !== undefined) {
+      return { data: initialData, status: 'success' };
+    }
+    // Unlimited retries would keep a timer running after the request ends, so
+    // the server only retries when `maxRetryCount` is set.
+    const data = retry(async () => fullOpts.get(...args), {
+      count: fullOpts.maxRetryCount ?? 0,
+      interval: fullOpts.maxRetryInterval,
+    }).resolvable.promise;
+    // The caller may never read the promise. Mark the rejection as handled so
+    // a failed fetch does not crash the process.
+    data.catch(() => undefined);
+    return { data, status: 'pending' };
+  }
+
   // Parse key
   const generatedKey = fullOpts.key(...args);
 

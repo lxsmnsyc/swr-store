@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { useDebugValue, useState, useSyncExternalStore } from 'react';
 import type { MutationResult } from '../cache/mutation-cache';
 import type { ExternalStore } from '../bindings/external-store';
-import { createExternalStore, isSameArgs } from '../bindings/external-store';
+import { SERVER_SUSPENSE_ERROR, createExternalStore, isSameArgs } from '../bindings/external-store';
+import IS_CLIENT from '../is-client';
 import type { SWRStore } from '../types';
 
 interface BaseOptions<T> {
@@ -89,6 +90,12 @@ export function useSWRStore<T, P extends any[] = []>(
   if (suspense) {
     if (value.status === 'success') {
       return value.data;
+    }
+    // The server has no cache, so the read after suspending would start a
+    // new fetch and suspend again, forever. Fail instead, which makes the
+    // nearest Suspense boundary render on the client.
+    if (value.status === 'pending' && !IS_CLIENT) {
+      throw new Error(SERVER_SUSPENSE_ERROR);
     }
     throw value.data;
   }

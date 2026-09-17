@@ -1,6 +1,9 @@
 import type { MutationResult } from '../cache/mutation-cache';
 import type { SWRStore } from '../types';
 
+export const SERVER_SUSPENSE_ERROR =
+  'useSWRStore cannot suspend on the server because the server has no cache. Pass initialData, or let the Suspense boundary render on the client.';
+
 export interface ExternalStoreOptions<T> {
   initialData?: T;
   shouldRevalidate?: boolean;

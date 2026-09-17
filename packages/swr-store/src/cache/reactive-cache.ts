@@ -1,34 +1,33 @@
+import IS_CLIENT from '../is-client';
+import LRUMap from './lru-map';
+
+export const DEFAULT_CACHE_SIZE = 1000;
+
 export type ReactiveCacheListener<T> = (value: T) => void;
 export interface ReactiveCacheRef<T> {
   value: T;
 }
 
 export interface ReactiveCache<T> {
-  cache: Map<string, ReactiveCacheRef<T>>;
+  cache: LRUMap<string, ReactiveCacheRef<T>>;
   subscribers: Map<string, Set<ReactiveCacheListener<T>>>;
 }
 
-export function createReactiveCache<T>(): ReactiveCache<T> {
+export function createReactiveCache<T>(maxSize = DEFAULT_CACHE_SIZE): ReactiveCache<T> {
   return {
-    cache: new Map(),
+    cache: new LRUMap(maxSize),
     subscribers: new Map(),
   };
 }
 
-export function createReactiveCacheRef<T>(
-  cache: ReactiveCache<T>,
-  key: string,
-  value: T,
-): ReactiveCacheRef<T> {
-  const currentRef = cache.cache.get(key);
-  if (currentRef) {
-    return currentRef;
+// The cache is shared by everything in the same JS runtime. On a server, that
+// means every request, so values are never stored or broadcast there. This
+// keeps one request from reading another request's data.
+export function getReactiveCacheValue<T>(cache: ReactiveCache<T>, key: string): T | undefined {
+  if (!IS_CLIENT) {
+    return undefined;
   }
-  const newRef: ReactiveCacheRef<T> = {
-    value,
-  };
-  cache.cache.set(key, newRef);
-  return newRef;
+  return cache.cache.get(key)?.value;
 }
 
 export function subscribeReactiveCache<T>(
@@ -36,6 +35,11 @@ export function subscribeReactiveCache<T>(
   key: string,
   listener: ReactiveCacheListener<T>,
 ): () => void {
+  if (!IS_CLIENT) {
+    return () => {
+      // Nothing is ever broadcast on the server.
+    };
+  }
   let subscribers = cache.subscribers.get(key);
   if (!subscribers) {
     subscribers = new Set();
@@ -45,6 +49,10 @@ export function subscribeReactiveCache<T>(
 
   return () => {
     subscribers.delete(listener);
+    // Drop the empty set so unused keys do not pile up.
+    if (subscribers.size === 0 && cache.subscribers.get(key) === subscribers) {
+      cache.subscribers.delete(key);
+    }
   };
 }
 
@@ -54,25 +62,27 @@ export function setReactiveCacheValue<T>(
   value: T,
   notify = true,
 ): void {
-  const currentRef = createReactiveCacheRef(cache, key, value);
-  currentRef.value = value;
+  if (!IS_CLIENT) {
+    return;
+  }
+  const currentRef = cache.cache.get(key);
+  if (currentRef) {
+    currentRef.value = value;
+  } else {
+    cache.cache.set(key, { value });
+  }
 
   if (notify) {
-    let subscribers = cache.subscribers.get(key);
-    if (!subscribers) {
-      subscribers = new Set();
-      cache.subscribers.set(key, subscribers);
-    }
-    for (const listener of subscribers.keys()) {
-      listener(value);
+    const subscribers = cache.subscribers.get(key);
+    if (subscribers) {
+      // Copy first, so a listener that unsubscribes does not skip another.
+      for (const listener of Array.from(subscribers)) {
+        listener(value);
+      }
     }
   }
 }
 
 export function getReactiveCacheListenerSize<T>(cache: ReactiveCache<T>, key: string): number {
-  const result = cache.subscribers.get(key);
-  if (result) {
-    return result.size;
-  }
-  return 0;
+  return cache.subscribers.get(key)?.size ?? 0;
 }

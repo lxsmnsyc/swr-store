@@ -1,4 +1,4 @@
-export { mutate, trigger, subscribe } from './global';
+export { mutate, setCacheSize, subscribe, trigger } from './global';
 export { default as createSWRStore } from './create-swr-store';
 export type * from './types';
 export type {
