@@ -33,8 +33,8 @@ describe('useSWRStoreSuspenseless', () => {
       key: (id) => `${prefix}-${id}`,
       get: async (id) => id,
     });
-    store.mutate(['a'], { status: 'success', data: 'a' }, false);
-    store.mutate(['b'], { status: 'success', data: 'b' }, false);
+    store.mutate(['a'], 'a', { revalidate: false });
+    store.mutate(['b'], 'b', { revalidate: false });
 
     await createRoot(async (dispose) => {
       const [id, setId] = createSignal('a');
@@ -42,7 +42,7 @@ describe('useSWRStoreSuspenseless', () => {
       await flush();
       expect(result()).toEqual({ status: 'success', data: 'a' });
 
-      store.mutate(['a'], { status: 'success', data: 'a2' }, false);
+      store.mutate(['a'], 'a2', { revalidate: false });
       expect(result()).toEqual({ status: 'success', data: 'a2' });
 
       setId('b');
@@ -50,7 +50,7 @@ describe('useSWRStoreSuspenseless', () => {
       expect(result()).toEqual({ status: 'success', data: 'b' });
 
       // The previous key is no longer tracked.
-      store.mutate(['a'], { status: 'success', data: 'a3' }, false);
+      store.mutate(['a'], 'a3', { revalidate: false });
       expect(result()).toEqual({ status: 'success', data: 'b' });
       dispose();
     });
@@ -98,7 +98,7 @@ describe('useSWRStore', () => {
       key: () => key,
       get: async () => 'value',
     });
-    store.mutate([], { status: 'failure', data: error }, false);
+    store.setResult([], { status: 'failure', data: error }, { revalidate: false });
 
     await createRoot(async (dispose) => {
       const resource = useSWRStore(store, (): [] => []);
@@ -135,7 +135,7 @@ describe('Solid Suspense', () => {
     await flush();
     expect(container.textContent).toBe('value');
 
-    store.mutate([], { status: 'success', data: 'next' }, false);
+    store.mutate([], 'next', { revalidate: false });
     expect(resource.loading).toBe(false);
     expect(container.textContent).toBe('next');
     dispose();
@@ -168,7 +168,7 @@ describe('Solid suspense recovery', () => {
     );
     expect(container.textContent).toBe('loading');
 
-    store.mutate([], { status: 'success', data: 'mutated' }, false);
+    store.mutate([], 'mutated', { revalidate: false });
     await flush();
 
     expect(container.textContent).toBe('mutated');
@@ -181,8 +181,8 @@ describe('Solid suspense recovery', () => {
       key: (id) => `${prefix}-${id}`,
       get: async (id) => `${id} fetched`,
     });
-    store.mutate(['k'], { status: 'success', data: 'start' }, false);
-    store.mutate(['other'], { status: 'success', data: 'other data' }, false);
+    store.mutate(['k'], 'start', { revalidate: false });
+    store.mutate(['other'], 'other data', { revalidate: false });
 
     await createRoot(async (dispose) => {
       const watcher = useSWRStoreSuspenseless(store, (): [string] => ['k']);
@@ -192,7 +192,7 @@ describe('Solid suspense recovery', () => {
       });
       await flush();
 
-      store.mutate(['k'], { status: 'success', data: 'go' }, false);
+      store.mutate(['k'], 'go', { revalidate: false });
       await flush();
 
       expect(follower()).toEqual({ status: 'success', data: 'other data' });
@@ -231,7 +231,7 @@ describe('Solid hydration', () => {
 
     expect(container.textContent).toBe('server');
     expect(get).not.toHaveBeenCalled();
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'server',
     });
@@ -269,7 +269,7 @@ describe('Solid hydration details', () => {
     await flush();
 
     expect(get).toHaveBeenCalledTimes(1);
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'client',
     });
@@ -296,7 +296,7 @@ describe('Solid hydration details', () => {
     await flush();
 
     expect(resource()).toBe('server');
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'server',
     });
@@ -345,7 +345,7 @@ describe('Solid subscriptions', () => {
         staleAge: 0,
         refreshInterval: 1000,
       });
-      store.mutate(['x'], { status: 'success', data: 'start' }, false);
+      store.mutate(['x'], 'start', { revalidate: false });
 
       await createRoot(async (dispose) => {
         const [token, setToken] = createSignal('t0');

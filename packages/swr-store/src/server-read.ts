@@ -1,4 +1,6 @@
-import type { SWRGet, SWRStore } from './types';
+import type { SWRStore } from './types';
+
+type SWRGet<T, P extends any[]> = SWRStore<T, P>['get'];
 
 const SERVER_READS = new WeakMap<object, SWRGet<any, any>>();
 

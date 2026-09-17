@@ -24,7 +24,8 @@ describe('on the server', () => {
     const get = vi.fn(async () => 'fetched');
     const store = createSWRStore<string>({ key: () => key, get });
 
-    expect(store.get([], { initialData: 'initial', hydrate: true })).toEqual({
+    store.hydrate([], 'server');
+    expect(store.get([], { initialData: 'initial' })).toEqual({
       status: 'success',
       data: 'initial',
     });
@@ -46,8 +47,8 @@ describe('on the server', () => {
     const storeListener = vi.fn();
     const unsubscribeStore = store.subscribe([], storeListener);
 
-    mutate(key, { status: 'success', data: 'mutated' });
-    store.mutate([], { status: 'success', data: 'mutated' });
+    mutate(key, 'mutated');
+    store.mutate([], 'mutated');
     trigger(key);
 
     expect(listener).not.toHaveBeenCalled();

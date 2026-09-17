@@ -1,5 +1,6 @@
 import { dequal } from 'dequal/lite';
-import type { MutationListener, MutationResult } from './cache/mutation-cache';
+import type { SWRListener, SWRResult } from './cache/mutation-cache';
+import type { SWRMutateOptions, SWRMutateValue } from './types';
 import {
   MUTATION_CACHE,
   getMutation,
@@ -12,30 +13,27 @@ import { setRevalidation } from './cache/revalidation-cache';
  * Asks the subscribed stores for `key` to revalidate. Fresh entries are not
  * fetched again.
  */
-export function trigger(key: string, shouldRevalidate = true): void {
-  if (shouldRevalidate) {
-    setRevalidation(key, false);
-  }
+export function trigger(key: string): void {
+  setRevalidation(key, false);
 }
 
 /**
- * Writes `data` to the cache entry for `key` and notifies subscribers. With
- * `shouldRevalidate`, the subscribed stores then fetch again, even when the
- * entry is fresh, so the fetched data replaces the written one.
+ * Writes `result` to the cache entry for `key` and notifies subscribers. With
+ * `revalidate`, the subscribed stores then fetch again, even when the entry is
+ * fresh, so the fetched data replaces the written one.
  */
-export function mutate<T>(
+export function setResult<T>(
   key: string,
-  data: MutationResult<T>,
-  shouldRevalidate = true,
-  compare: (a: T, b: T) => boolean = dequal,
+  result: SWRResult<T>,
+  { revalidate = true, compare = dequal }: SWRMutateOptions<T> = {},
 ): void {
   const current = getMutation<T>(key);
   const timestamp = Date.now();
 
   if (
     current?.result.status === 'success' &&
-    data.status === 'success' &&
-    compare(current.result.data, data.data)
+    result.status === 'success' &&
+    compare(current.result.data, result.data)
   ) {
     // Same data, so only the age resets and subscribers are not notified.
     // A fetch that is still running started before this write, so the entry
@@ -44,7 +42,7 @@ export function mutate<T>(
     setMutation(key, { ...current, timestamp, isValidating: false }, current.isValidating);
   } else {
     setMutation(key, {
-      result: data,
+      result,
       timestamp,
       isValidating: false,
     });
@@ -53,14 +51,14 @@ export function mutate<T>(
   // A written pending result is replaced by its outcome, unless something
   // else was written first. Without this, the entry stays pending when no
   // store fetches the key, and whoever waits on it waits forever.
-  if (data.status === 'pending') {
+  if (result.status === 'pending') {
     const written = getMutation<T>(key);
-    const settle = (result: MutationResult<T>): void => {
+    const settle = (outcome: SWRResult<T>): void => {
       if (written && getMutation<T>(key) === written) {
-        setMutation(key, { result, timestamp: Date.now(), isValidating: false });
+        setMutation(key, { result: outcome, timestamp: Date.now(), isValidating: false });
       }
     };
-    data.data.then(
+    result.data.then(
       (value) => {
         settle({ data: value, status: 'success' });
       },
@@ -72,13 +70,38 @@ export function mutate<T>(
 
   // Revalidate after the write. A fetch that starts now is newer than the
   // written data, so its result is kept.
-  if (shouldRevalidate) {
+  if (revalidate) {
     setRevalidation(key, true);
   }
 }
 
-export function subscribe<T>(key: string, listener: MutationListener<T>): () => void {
-  const wrappedListener: MutationListener<T> = (value) => {
+/**
+ * Writes successful data to the cache entry for `key`. `value` can be a
+ * function, which receives the cached data, or `undefined` when the entry
+ * holds no data. Data that is itself a function has to go through
+ * `setResult`.
+ */
+export function mutate<T>(
+  key: string,
+  value: SWRMutateValue<T>,
+  options?: SWRMutateOptions<T>,
+): void {
+  let data: T;
+  if (typeof value === 'function') {
+    const current = getMutation<T>(key)?.result;
+    // A function value is always an updater, as documented.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    data = (value as (previous: T | undefined) => T)(
+      current?.status === 'success' ? current.data : undefined,
+    );
+  } else {
+    data = value;
+  }
+  setResult(key, { data, status: 'success' }, options);
+}
+
+export function subscribe<T>(key: string, listener: SWRListener<T>): () => void {
+  const wrappedListener: SWRListener<T> = (value) => {
     listener(value);
   };
   return subscribeMutation(key, wrappedListener);

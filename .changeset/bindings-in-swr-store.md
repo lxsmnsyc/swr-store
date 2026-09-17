@@ -6,9 +6,16 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 
 - Import them from `swr-store/react`, `swr-store/preact` and `swr-store/solid`. They replace the `react-swr-store`, `preact-swr-store` and `solid-swr-store` packages.
 - `react`, `preact` and `solid-js` are optional peer dependencies. Install only the one you use.
-- The React binding supports React 18 and 19, and the Preact binding needs Preact 10.11 or later. Both use `useSyncExternalStore` and no longer need `SWRStoreRoot`. The component is still exported but only renders its children.
+- The React binding supports React 18 and 19, and the Preact binding needs Preact 10.11 or later. Both use `useSyncExternalStore`. `SWRStoreRoot` is removed, since the hooks no longer need it.
 - The `suspense` option of the React and Preact `useSWRStore` can be left out.
 - The Solid hooks now read the new result when their arguments change, and `options` can be left out.
+- `store.mutate(args, value, options?)` and the global `mutate(key, value, options?)` now take the data, or a function that receives the cached data and returns the new data. Use the new `setResult` to write a pending or failed result.
+- `mutate` and `setResult` take their options as an object: `{ revalidate, compare }`. `revalidate` defaults to `true`.
+- `trigger` no longer takes a `shouldRevalidate` argument.
+- The `hydrate` option of `get` is replaced by `store.hydrate(args, data)`. It writes the data unless the entry already holds a settled result. A pending entry is replaced, and its fetch is dropped. The hooks still accept `hydrate`.
+- The `shouldRevalidate` option of `get` and the hooks is renamed to `revalidate`.
+- The result and entry types are renamed. `MutationResult`, `MutationPending`, `MutationSuccess` and `MutationFailure` are now `SWRResult`, `SWRPending`, `SWRSuccess` and `SWRFailure`. `Mutation` is now `SWREntry`, and `MutationListener` is now `SWRListener`.
+- `store.id` is removed. The `SWRTrigger`, `SWRMutate`, `SWRGet`, `SWRSubscribe`, `SWRStoreBaseOptions`, `SWRStoreExtendedOptions`, `SWRStorePartialOptions` and `SWRFullOptions` types are no longer exported. Use `SWRStore` and `SWRStoreOptions` instead.
 - `key` is now required. Build it from what makes the data unique, such as an id. The default key, which serialized the arguments, is gone. Use the new `store.getKey(args)` to get a key for the global `trigger`, `mutate` and `subscribe`.
 - `initialData` that is not hydrated no longer stops the first fetch. Before, a store with `initialData` never fetched on its own.
 - Store and `get` options set to `undefined` now keep their defaults. Before, passing `initialData: undefined` to `get` ignored the store's `initialData`.
@@ -21,11 +28,10 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - Event listeners and polling are now set up and removed per store. Before, stores that shared a key could leave listeners running after every subscriber left, or never set them up when a global subscriber came first.
 - `isValidating` now goes back to `false` when a refetch returns equal data. Subscribers are notified when it changes.
 - A fetch that is replaced by a newer one now settles with the newer fetch's result. Before, its promise never settled, which could leave a suspended component waiting forever.
-- `mutate` now writes before revalidating, and with `shouldRevalidate` it fetches even when the entry is fresh. The fetched data replaces the written data.
-- `trigger` with `shouldRevalidate: false` now does nothing.
+- `mutate` now writes before revalidating, and with `revalidate` it fetches even when the entry is fresh. The fetched data replaces the written data.
 - Event and polling options are skipped when their events are missing, such as in React Native, instead of throwing.
 - `refreshWhenHidden`, `refreshWhenBlurred` and `refreshWhenOffline` start polling right away when the page is already in that state.
-- The `Mutation` and `MutationListener` types are now exported.
+- The `SWREntry` and `SWRListener` types are exported.
 - A read that writes to the cache, such as `get` starting a fetch, now notifies subscribers in a microtask. React no longer warns about updating a component while rendering a different one.
 - `mutate` now starts one fetch when several stores share the key, instead of one per store.
 - The React hook now renders what the server rendered during hydration, so a filled client cache no longer causes a hydration mismatch.

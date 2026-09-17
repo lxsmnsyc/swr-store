@@ -7,7 +7,7 @@ import {
   sharedConfig,
   untrack,
 } from 'solid-js';
-import type { MutationResult } from '../cache/mutation-cache';
+import type { SWRResult } from '../cache/mutation-cache';
 import { isSameArgs, isSameResult, waitForResult } from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
 import createLazyPromise from '../lazy-promise';
@@ -15,12 +15,12 @@ import type { SWRStore } from '../types';
 
 export interface UseSWRStoreOptions<T> {
   initialData?: T;
-  shouldRevalidate?: boolean;
+  revalidate?: boolean;
   hydrate?: boolean;
 }
 
 interface SuspenselessState<T> {
-  result: () => MutationResult<T>;
+  result: () => SWRResult<T>;
   // Writes data from server rendering to the cache and shows it.
   hydrate: (data: T) => void;
   // Starts a deferred first read, when hydration brought no data.
@@ -28,7 +28,7 @@ interface SuspenselessState<T> {
 }
 
 // oxlint-disable-next-line typescript/promise-function-async
-function toPromise<T>(result: MutationResult<T>): Promise<T> {
+function toPromise<T>(result: SWRResult<T>): Promise<T> {
   if (result.status === 'success') {
     return Promise.resolve(result.data);
   }
@@ -47,30 +47,35 @@ function createSuspenseless<T, P extends any[]>(
 ): SuspenselessState<T> {
   // Store reads run untracked, so signals read by the store's `get` or `key`
   // do not become dependencies of this hook.
-  const read = (currentArgs: P, shouldRevalidate: boolean | undefined): MutationResult<T> =>
-    untrack(() =>
-      store.get(currentArgs, {
-        shouldRevalidate,
-        initialData: options.initialData,
-        hydrate: options.hydrate,
-      }),
-    );
+  const read = (currentArgs: P, revalidate: boolean | undefined): SWRResult<T> =>
+    untrack(() => store.get(currentArgs, { revalidate, initialData: options.initialData }));
+
+  // The first read for a key writes hydrated initial data first.
+  const readFirst = (currentArgs: P): SWRResult<T> => {
+    if (options.hydrate && options.initialData !== undefined) {
+      const { initialData } = options;
+      untrack(() => {
+        store.hydrate(currentArgs, initialData);
+      });
+    }
+    return read(currentArgs, options.revalidate);
+  };
 
   // While hydrating, the resource may already have the server's data, so the
   // first read waits until something needs it instead of fetching right away.
   let firstReadDeferred = deferFirstRead;
-  const [result, setResult] = createSignal<MutationResult<T>>(
+  const [result, setResult] = createSignal<SWRResult<T>>(
     deferFirstRead
       ? {
           status: 'pending',
           data: createLazyPromise(async () => {
             firstReadDeferred = false;
-            const next = read(untrack(args), options.shouldRevalidate);
+            const next = readFirst(untrack(args));
             setResult(() => next);
             return toPromise(next);
           }),
         }
-      : read(untrack(args), options.shouldRevalidate),
+      : readFirst(untrack(args)),
     { equals: isSameResult },
   );
 
@@ -108,7 +113,7 @@ function createSuspenseless<T, P extends any[]>(
 
     if (previous) {
       if (previous.key !== key) {
-        setResult(() => read(currentArgs, options.shouldRevalidate));
+        setResult(() => readFirst(currentArgs));
       }
     } else if (!firstReadDeferred) {
       // The cache may have changed between the first read and the
@@ -130,17 +135,7 @@ function createSuspenseless<T, P extends any[]>(
       firstReadDeferred = false;
       const currentArgs = untrack(args);
       untrack(() => {
-        const existing = store.get(currentArgs, {
-          initialData: data,
-          hydrate: true,
-          shouldRevalidate: false,
-        });
-        // Another reader of the key, such as `useSWRStoreSuspenseless`, may
-        // have started a fetch first. The server's data replaces that pending
-        // entry, so it is not fetched again.
-        if (existing.status === 'pending') {
-          store.mutate(currentArgs, { data, status: 'success' }, false);
-        }
+        store.hydrate(currentArgs, data);
       });
       setResult(() => read(currentArgs, false));
     },
@@ -149,7 +144,7 @@ function createSuspenseless<T, P extends any[]>(
         return;
       }
       firstReadDeferred = false;
-      setResult(() => read(untrack(args), options.shouldRevalidate));
+      setResult(() => readFirst(untrack(args)));
     },
   };
 }
@@ -158,7 +153,7 @@ export function useSWRStoreSuspenseless<T, P extends any[] = []>(
   store: SWRStore<T, P>,
   args: () => P,
   options: UseSWRStoreOptions<T> = {},
-): () => MutationResult<T> {
+): () => SWRResult<T> {
   return createSuspenseless(store, args, options, false).result;
 }
 
@@ -178,7 +173,7 @@ export function useSWRStore<T, P extends any[] = []>(
   // Settled data is returned as is, so Solid applies it right away. A pending
   // result gives the resource a promise that also settles when the cache
   // entry is written, so a `mutate` ends the suspense.
-  const toResourceValue = (currentArgs: P, result: MutationResult<T>): T | Promise<T> => {
+  const toResourceValue = (currentArgs: P, result: SWRResult<T>): T | Promise<T> => {
     if (result.status === 'success') {
       return result.data;
     }
@@ -191,11 +186,7 @@ export function useSWRStore<T, P extends any[] = []>(
     }
     return waitForResult(store, currentArgs, result, () =>
       untrack(() =>
-        store.get(currentArgs, {
-          shouldRevalidate: false,
-          initialData: options.initialData,
-          hydrate: options.hydrate,
-        }),
+        store.get(currentArgs, { revalidate: false, initialData: options.initialData }),
       ),
     );
   };
@@ -210,9 +201,8 @@ export function useSWRStore<T, P extends any[] = []>(
         toResourceValue(
           currentArgs,
           store.get(currentArgs, {
-            shouldRevalidate: options.shouldRevalidate,
+            revalidate: options.revalidate,
             initialData: options.initialData,
-            hydrate: options.hydrate,
           }),
         ),
       resourceOptions,

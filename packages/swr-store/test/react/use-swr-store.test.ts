@@ -5,7 +5,7 @@ import { Component, StrictMode, Suspense, createElement, startTransition, useSta
 import { hydrateRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { createSWRStore, setCacheSize } from '../../src';
-import { SWRStoreRoot, useSWRStore } from '../../src/react';
+import { useSWRStore } from '../../src/react';
 import { createDeferred, uniqueKey } from '../utils';
 
 // A render that suspends with `use` has to happen inside an awaited `act`,
@@ -86,13 +86,13 @@ describe('useSWRStore', () => {
       get: async () => 'fetched',
       initialData: 'initial',
     });
-    store.mutate([], { status: 'success', data: 'first' }, false);
+    store.mutate([], 'first', { revalidate: false });
 
     const { result } = renderHook(() => useSWRStore(store, []));
     expect(result.current).toEqual({ status: 'success', data: 'first' });
 
     act(() => {
-      store.mutate([], { status: 'success', data: 'second' }, false);
+      store.mutate([], 'second', { revalidate: false });
     });
     expect(result.current).toEqual({ status: 'success', data: 'second' });
   });
@@ -103,8 +103,8 @@ describe('useSWRStore', () => {
       key: (id) => `${prefix}-${id}`,
       get: async (id) => id,
     });
-    store.mutate(['a'], { status: 'success', data: 'a' }, false);
-    store.mutate(['b'], { status: 'success', data: 'b' }, false);
+    store.mutate(['a'], 'a', { revalidate: false });
+    store.mutate(['b'], 'b', { revalidate: false });
 
     const { result, rerender } = renderHook(({ id }: { id: string }) => useSWRStore(store, [id]), {
       initialProps: { id: 'a' },
@@ -164,7 +164,7 @@ describe('useSWRStore', () => {
       key: () => key,
       get: async () => 'value',
     });
-    store.mutate([], { status: 'failure', data: error }, false);
+    store.setResult([], { status: 'failure', data: error }, { revalidate: false });
 
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(() => renderHook(() => useSWRStore(store, [], { suspense: true }))).toThrow(error);
@@ -200,7 +200,7 @@ describe('rendering', () => {
 
     render(createElement(App));
     await waitFor(() => {
-      expect(store.get([], { shouldRevalidate: false }).status).toBe('success');
+      expect(store.get([], { revalidate: false }).status).toBe('success');
     });
 
     // The entry has expired, so the second component starts a fetch while
@@ -274,13 +274,6 @@ describe('rendering', () => {
   });
 });
 
-describe('SWRStoreRoot', () => {
-  it('renders its children', () => {
-    render(createElement(SWRStoreRoot, null, 'child'));
-    expect(screen.getByText('child')).toBeDefined();
-  });
-});
-
 describe('React stability', () => {
   it('does not loop when initialData is a new object every render', () => {
     const key = uniqueKey('react-initial-object');
@@ -328,7 +321,7 @@ describe('React stability', () => {
 
     renderHook(() => useSWRStore(store, [], { initialData: 'server', hydrate: true }));
 
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'server',
     });
@@ -461,7 +454,7 @@ describe('React suspense recovery', () => {
     expect(view.container.textContent).toBe('loading');
 
     await act(async () => {
-      store.mutate([], { status: 'success', data: 'mutated' }, false);
+      store.mutate([], 'mutated', { revalidate: false });
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 20);
       });
@@ -594,7 +587,7 @@ describe('React use and arguments', () => {
       initialProps: { token: 'first' },
     });
     await waitFor(() => {
-      expect(store.get([''], { shouldRevalidate: false }).status).toBe('success');
+      expect(store.get([''], { revalidate: false }).status).toBe('success');
     });
 
     rerender({ token: 'second' });

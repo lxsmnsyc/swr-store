@@ -1,4 +1,4 @@
-import type { Mutation, MutationPending, MutationResult } from './cache/mutation-cache';
+import type { SWREntry, SWRPending, SWRResult } from './cache/mutation-cache';
 import {
   getLastWriteVersion,
   getMutation,
@@ -9,28 +9,21 @@ import {
   unpinKey,
 } from './cache/mutation-cache';
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
+import type { SWRFullOptions } from './default-config';
 import getDefaultConfig from './default-config';
-import { mutate, subscribe, trigger } from './global';
+import { mutate, setResult, subscribe, trigger } from './global';
 import IS_CLIENT, { HAS_DOCUMENT, HAS_WINDOW_EVENTS } from './is-client';
 import createLazyPromise from './lazy-promise';
 import reportUserError from './report-error';
 import type { Retry } from './retry';
 import retry from './retry';
 import { setServerRead } from './server-read';
-import type { SWRFullOptions, SWRGetOptions, SWRStore, SWRStoreOptions } from './types';
-
-let index = 0;
-
-function getIndex(): number {
-  const current = index;
-  index += 1;
-  return current;
-}
+import type { SWRGetOptions, SWRStore, SWRStoreOptions } from './types';
 
 interface Fetch<T> {
   retry: Retry<T>;
   // The pending result for readers that have no cache entry to return.
-  result: MutationPending<T>;
+  result: SWRPending<T>;
   startedAt: number;
 }
 
@@ -58,7 +51,7 @@ function readOnServer<T, P extends any[] = []>(
   fullOpts: SWRFullOptions<T, P>,
   args: P,
   initialData: T | undefined,
-): MutationResult<T> {
+): SWRResult<T> {
   if (initialData !== undefined) {
     return { data: initialData, status: 'success' };
   }
@@ -83,12 +76,11 @@ function revalidate<T, P extends any[] = []>(
   args: P,
   opts?: SWRGetOptions<T>,
   force = false,
-): MutationResult<T> {
-  const { shouldRevalidate, initialData, hydrate } = withDefaults<SWRGetOptions<T>>(
+): SWRResult<T> {
+  const { revalidate: shouldRevalidate, initialData } = withDefaults<SWRGetOptions<T>>(
     {
-      shouldRevalidate: true,
+      revalidate: true,
       initialData: fullOpts.initialData,
-      hydrate: false,
     },
     opts,
   );
@@ -99,24 +91,14 @@ function revalidate<T, P extends any[] = []>(
   const generatedKey = fullOpts.key(...args);
   const now = Date.now();
 
-  let currentMutation = getMutation<T>(generatedKey);
+  const currentMutation = getMutation<T>(generatedKey);
 
-  // Initial data that is not written to the cache is only a placeholder. It
-  // is returned until a fetch fills the cache, and never counts as fresh.
-  let placeholder: MutationResult<T> | undefined;
-
-  if (!currentMutation && initialData !== undefined) {
-    if (hydrate) {
-      currentMutation = {
-        result: { data: initialData, status: 'success' },
-        timestamp: now,
-        isValidating: false,
-      };
-      setMutationDeferred(generatedKey, currentMutation);
-    } else {
-      placeholder = { data: initialData, status: 'success' };
-    }
-  }
+  // Initial data is only a placeholder. It is returned until a fetch fills
+  // the cache, and never counts as fresh.
+  const placeholder: SWRResult<T> | undefined =
+    !currentMutation && initialData !== undefined
+      ? { data: initialData, status: 'success' }
+      : undefined;
 
   const running = fetches.get(generatedKey) as Fetch<T> | undefined;
   const cached = currentMutation?.result ?? placeholder ?? running?.result;
@@ -143,7 +125,7 @@ function revalidate<T, P extends any[] = []>(
     interval: fullOpts.maxRetryInterval,
   });
   const pendingData = pendingRetry.resolvable.promise;
-  const result: MutationPending<T> = {
+  const result: SWRPending<T> = {
     data: pendingData,
     status: 'pending',
   };
@@ -155,7 +137,7 @@ function revalidate<T, P extends any[] = []>(
   // so whoever waits on it still gets data.
   running?.retry.cancel(pendingData);
 
-  let returned: MutationResult<T>;
+  let returned: SWRResult<T>;
   if (
     currentMutation &&
     currentMutation.result.status !== 'failure' &&
@@ -180,7 +162,7 @@ function revalidate<T, P extends any[] = []>(
   // Any write after this point is newer than the fetch, and wins over it.
   const version = nextVersion();
 
-  const settle = (write: (latest: Mutation<T> | undefined) => Mutation<T>): void => {
+  const settle = (write: (latest: SWREntry<T> | undefined) => SWREntry<T>): void => {
     if (fetches.get(generatedKey) === fetch) {
       fetches.delete(generatedKey);
     }
@@ -363,7 +345,6 @@ interface Registration<P> {
 export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
 ): SWRStore<T, P> {
-  const id = `SWRStore-${getIndex()}`;
   const fullOpts: SWRFullOptions<T, P> = {
     ...options,
     ...withDefaults(getDefaultConfig<T>(), options),
@@ -375,13 +356,45 @@ export default function createSWRStore<T, P extends any[] = []>(
   const registrations = new Map<string, Registration<P>>();
 
   const store: SWRStore<T, P> = {
-    id,
     getKey: (args) => fullOpts.key(...args),
-    trigger: (args, shouldRevalidate = true) => {
-      trigger(fullOpts.key(...args), shouldRevalidate);
+    trigger: (args) => {
+      trigger(fullOpts.key(...args));
     },
-    mutate: (args, data, shouldRevalidate = true, compare = fullOpts.compare) => {
-      mutate(fullOpts.key(...args), data, shouldRevalidate, compare);
+    mutate: (args, value, mutateOptions) => {
+      mutate(
+        fullOpts.key(...args),
+        value,
+        withDefaults({ compare: fullOpts.compare }, mutateOptions),
+      );
+    },
+    setResult: (args, result, mutateOptions) => {
+      setResult(
+        fullOpts.key(...args),
+        result,
+        withDefaults({ compare: fullOpts.compare }, mutateOptions),
+      );
+    },
+    hydrate: (args, data) => {
+      // The server has no cache to write to.
+      if (!IS_CLIENT) {
+        return;
+      }
+      const generatedKey = fullOpts.key(...args);
+      // A settled result is kept. A pending one is replaced, since the
+      // server's data is ready and the fetch would load it again. The
+      // running fetch is dropped when it settles, because this write is
+      // newer.
+      const current = getMutation<T>(generatedKey);
+      if (current && current.result.status !== 'pending') {
+        return;
+      }
+      // Hydration can happen while a UI library renders, so subscribers are
+      // notified in a microtask.
+      setMutationDeferred(generatedKey, {
+        result: { data, status: 'success' },
+        timestamp: Date.now(),
+        isValidating: false,
+      });
     },
     // This function revalidates the mutation cache
     // through reactive process

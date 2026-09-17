@@ -23,7 +23,7 @@ The `swr-store/react`, `swr-store/preact` and `swr-store/solid` entry points nee
 ## Quick start
 
 ```ts
-import type { MutationResult } from 'swr-store';
+import type { SWRResult } from 'swr-store';
 import { createSWRStore } from 'swr-store';
 
 interface User {
@@ -43,14 +43,14 @@ const userStore = createSWRStore<User, [string]>({
   revalidateOnFocus: true,
 });
 
-const unsubscribe = userStore.subscribe(['123'], (mutation) => {
-  render(mutation.result);
+const unsubscribe = userStore.subscribe(['123'], (entry) => {
+  render(entry.result);
 });
 
 // Starts the fetch and returns a pending result.
 render(userStore.get(['123']));
 
-function render(result: MutationResult<User>) {
+function render(result: SWRResult<User>) {
   if (result.status === 'pending') {
     showSpinner();
   } else if (result.status === 'failure') {
@@ -63,7 +63,7 @@ function render(result: MutationResult<User>) {
 
 ## Results
 
-Reading a store returns a `MutationResult<T>`. Check `status` to find out what `data` holds.
+Reading a store returns a `SWRResult<T>`. Check `status` to find out what `data` holds.
 
 | `status`    | `data`                                                |
 | ----------- | ----------------------------------------------------- |
@@ -84,7 +84,7 @@ const userStore = createSWRStore<User, [string]>({
 
 - Stores that produce the same key share the same cache entry.
 - The key can leave out arguments that do not change the data, such as an auth token.
-- The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
+- The global `trigger`, `mutate`, `setResult` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
 - The cache keeps up to 1000 entries. When it is full, the least recently used entry is removed. Entries with subscribers or a running fetch are kept, and so is the entry used last. Change the limit with [`setCacheSize`](#setcachesizesize).
 
 ```ts
@@ -116,7 +116,7 @@ A cached failure has no stale time. Once it is no longer fresh, a read returns a
 - `staleAge` defaults to `30000` milliseconds.
 - Ages are only checked when the store is read or revalidated. Nothing expires on a timer.
 
-A key has at most one running fetch. Reads that would fetch while one runs return the cached result, or the running fetch's pending result, instead of starting another. Only `mutate` replaces a running fetch, and only one that started before its write.
+A key has at most one running fetch. Reads that would fetch while one runs return the cached result, or the running fetch's pending result, instead of starting another. Only a revalidating `mutate` or `setResult` replaces a running fetch, and only one that started before its write.
 
 When a fetch settles after a newer write to the same key, its result is dropped. Writes are ordered by when they happened, not by their timestamps, so this also holds within the same millisecond.
 
@@ -175,18 +175,16 @@ By default initial data is only a placeholder.
 - It does not count as fresh, so the first read still starts a fetch.
 - It is not written to the cache.
 
-Pass `hydrate: true` to write it to the cache instead. The entry then follows the cache age rules like fetched data. Use this when the value is known to be current, such as data the server rendered with.
-
-Hydrating counts as a write. A fetch for the key that started before it is dropped when it settles, so the hydrated value stays.
+To write known current data to the cache, such as data the server rendered with, use `store.hydrate`. The entry then follows the cache age rules like fetched data.
 
 ```ts
-userStore.get(['123'], {
-  initialData: prefetchedUser,
-  hydrate: true,
-});
+userStore.hydrate(['123'], prefetchedUser);
 ```
 
-You can also write to the cache directly with `mutate`.
+- A settled entry is kept, since the cache already has data for the key.
+- A pending entry is replaced. Its fetch is dropped when it settles, so the hydrated value stays.
+
+You can also write to the cache directly with [`mutate`](#storemutateargs-value-options).
 
 ## Retries
 
@@ -211,13 +209,13 @@ The store treats these as clients, and caches there:
 
 Everything else is a server. That includes Node, Bun, Deno and edge runtimes such as Cloudflare Workers. On a server, the store behaves like this:
 
-- `get` returns `initialData` as a success result when it is set, and does not fetch. `hydrate` has no effect.
+- `get` returns `initialData` as a success result when it is set, and does not fetch.
 - Without `initialData`, every `get` returns a new pending result. Its fetch starts when something awaits `data`, so a render that only checks `status` sends no request. Reads do not share fetches, even with the same key.
 - A failed fetch is only retried when `maxRetryCount` is set. Unlimited retries would keep running after the request ends.
-- `mutate`, `trigger` and `subscribe` do nothing.
+- `hydrate`, `mutate`, `setResult`, `trigger` and `subscribe` do nothing.
 - Event listeners and polling do not start.
 
-Load data for the page before rendering, and pass it as `initialData`. On the client, pass the same value with `hydrate: true` so the cache starts from what the server rendered.
+Load data for the page before rendering, and pass it as `initialData`. On the client, pass the same value to `store.hydrate`, or to a hook with `hydrate: true`, so the cache starts from what the server rendered.
 
 The bindings follow the same rules:
 
@@ -260,65 +258,85 @@ Options set to `undefined` keep their default.
 
 ### `store.get(args, options?)`
 
-Reads the cache entry for `args` and returns a `MutationResult<T>`. It may start a fetch, as described in [Cache age](#cache-age).
+Reads the cache entry for `args` and returns a `SWRResult<T>`. It may start a fetch, as described in [Cache age](#cache-age).
 
-| Option             | Description                                                       | Default                 |
-| ------------------ | ----------------------------------------------------------------- | ----------------------- |
-| `shouldRevalidate` | When `false`, returns the cached result without checking its age. | `true`                  |
-| `initialData`      | Returned when there is no cache entry.                            | The store `initialData` |
-| `hydrate`          | Writes `initialData` to the cache.                                | `false`                 |
+| Option        | Description                                                       | Default                 |
+| ------------- | ----------------------------------------------------------------- | ----------------------- |
+| `revalidate`  | When `false`, returns the cached result without checking its age. | `true`                  |
+| `initialData` | Returned when there is no cache entry.                            | The store `initialData` |
 
-With `shouldRevalidate: false`, a read still starts a fetch when there is no cache entry and no initial data.
+With `revalidate: false`, a read still starts a fetch when there is nothing to show: no cache entry and no initial data.
 
 ### `store.getKey(args)`
 
-Returns the cache key for `args`. Pass it to the global `trigger`, `mutate` and `subscribe`.
+Returns the cache key for `args`. Pass it to the global `trigger`, `mutate`, `setResult` and `subscribe`.
 
 ### `store.subscribe(args, listener)`
 
 Calls `listener` every time the cache entry for `args` is written. Returns a function that unsubscribes.
 
-- Writes from fetch results and `mutate` notify right away.
+- Writes from fetch results, `mutate` and `setResult` notify right away.
 - A listener that throws does not stop the others. Its error is passed to `reportError` where available, or thrown from a microtask.
-- Writes made by a read, such as `get` starting a fetch, notify in a microtask. A read can happen while a UI library renders, and notifying right away would update other components in the middle of that render.
+- Writes made by a read, such as `get` starting a fetch, and by `hydrate` notify in a microtask. A read can happen while a UI library renders, and notifying right away would update other components in the middle of that render.
 - A write that notifies right away also covers a notification still waiting for its microtask, so a listener is not called twice with the same entry.
 
 The listener receives the cache entry:
 
-- `result` is the `MutationResult<T>`.
+- `result` is the `SWRResult<T>`.
 - `timestamp` is the time of the last write or revalidation.
 - `isValidating` is `true` while a background fetch runs.
 
 Subscribing also starts the event listeners and polling for the key. See [Lazy setup](#lazy-setup).
 
-### `store.trigger(args, shouldRevalidate = true)`
+### `store.trigger(args)`
 
-Asks the subscribed stores for the key of `args` to revalidate. With `shouldRevalidate: false`, nothing is refetched.
+Asks the subscribed stores for the key of `args` to revalidate. A fresh entry is not fetched again.
 
-### `store.mutate(args, result, shouldRevalidate = true, compare?)`
+### `store.mutate(args, value, options?)`
 
-Writes `result` to the cache entry for `args` and notifies subscribers.
+Writes successful data to the cache entry for `args` and notifies subscribers. `value` is the new data, or a function that receives the cached data and returns the new data.
 
 ```ts
-userStore.mutate(['123'], {
-  status: 'success',
-  data: { id: '123', name: 'John Doe' },
-});
+userStore.mutate(['123'], { id: '123', name: 'John Doe' });
+
+userStore.mutate(['123'], (user) => ({ ...user!, name: 'Jane Doe' }), { revalidate: false });
 ```
 
-- When both the cached and new results are successes and `compare` says they are equal, the entry keeps its value and its timestamp is reset. Subscribers are only notified when this ends a revalidation, so `isValidating` goes back to `false`.
-- `compare` defaults to the store `compare` option.
-- With `shouldRevalidate: true`, subscribed stores fetch again after the write, even when the entry is fresh. The fetched data then replaces the written data. Pass `false` to keep the written data.
+| Option       | Description                                                                                                                                | Default             |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- |
+| `revalidate` | When `true`, subscribed stores fetch again after the write, even when the entry is fresh. The fetched data then replaces the written data. | `true`              |
+| `compare`    | Checks whether the new data equals the cached data.                                                                                        | The store `compare` |
+
+- The function receives `undefined` when the entry holds no data, such as while it is pending or failed.
+- Data that is itself a function has to be written with `setResult`.
+- When the cached and new data are equal, the entry keeps its value and its timestamp is reset. Subscribers are only notified when this ends a revalidation, so `isValidating` goes back to `false`.
 - When several stores share the key, only one fetch starts.
+
+### `store.setResult(args, result, options?)`
+
+Writes any `SWRResult<T>` to the cache entry for `args`, such as a failure. It takes the same options as `store.mutate`.
+
+```ts
+userStore.setResult(['123'], { status: 'failure', data: new Error('Not found') });
+```
+
 - A pending `result` is replaced by its outcome once its promise settles, unless something else was written to the key first.
 
-### `trigger(key, shouldRevalidate = true)`
+### `store.hydrate(args, data)`
+
+Writes `data` to the cache entry for `args` as a success, unless the entry already holds a settled result. See [Initial data and hydration](#initial-data-and-hydration).
+
+### `trigger(key)`
 
 The same as `store.trigger`, for a cache key.
 
-### `mutate(key, result, shouldRevalidate = true, compare = dequal)`
+### `mutate(key, value, options?)`
 
-The same as `store.mutate`, for a cache key.
+The same as `store.mutate`, for a cache key. `compare` defaults to deep equality.
+
+### `setResult(key, result, options?)`
+
+The same as `store.setResult`, for a cache key. `compare` defaults to deep equality.
 
 ### `setCacheSize(size)`
 
@@ -332,10 +350,10 @@ Sets how many entries the client cache keeps. It must be a positive integer. The
 The same as `store.subscribe`, for a cache key. It does not start event listeners or polling.
 
 ```ts
-import { mutate, subscribe, trigger } from 'swr-store';
+import { subscribe, trigger } from 'swr-store';
 
-const unsubscribe = subscribe('/user/123', (mutation) => {
-  console.log(mutation.result);
+const unsubscribe = subscribe('/user/123', (entry) => {
+  console.log(entry.result);
 });
 
 trigger(userStore.getKey(['123']));
@@ -388,22 +406,21 @@ export default function App() {
 
 For Preact, import from `swr-store/preact` and take `Suspense` from `preact/compat`.
 
-| Option             | Description                                                                                        | Default                 |
-| ------------------ | -------------------------------------------------------------------------------------------------- | ----------------------- |
-| `suspense`         | When `true`, suspends while pending, throws the error on failure, and returns the data on success. | `false`                 |
-| `initialData`      | Returned while there is no cache entry.                                                            | The store `initialData` |
-| `hydrate`          | Writes `initialData` to the cache, as in `store.get`.                                              | `false`                 |
-| `shouldRevalidate` | When `false`, the hook does not revalidate after mounting.                                         | `true`                  |
+| Option        | Description                                                                                        | Default                 |
+| ------------- | -------------------------------------------------------------------------------------------------- | ----------------------- |
+| `suspense`    | When `true`, suspends while pending, throws the error on failure, and returns the data on success. | `false`                 |
+| `initialData` | Returned while there is no cache entry.                                                            | The store `initialData` |
+| `hydrate`     | Writes `initialData` to the cache with `store.hydrate`.                                            | `false`                 |
+| `revalidate`  | When `false`, the hook does not revalidate after mounting.                                         | `true`                  |
 
-- Without `suspense`, the hook returns the `MutationResult<T>`.
+- Without `suspense`, the hook returns the `SWRResult<T>`.
 - Rendering only reads the cache. It starts a fetch only when there is nothing to show. The hook revalidates once, after the component mounts. A render retried after suspending therefore shows the data it waited for, even when that data has already expired.
 - On React 19, the hook suspends with `use`. React 18 has no `use`, so there the hook throws the promise to wait on, which React 18 also supports. Preact always throws the promise.
 - A suspended component waits for its fetch or for the next write to its cache entry, whichever comes first. A `mutate` ends the suspense even when the fetch is still running.
 - With `suspense`, a cached failure is thrown while it is fresh. After that, rendering fetches again and suspends. Resetting an error boundary therefore retries once the failure is older than `freshAge`.
 - The hook compares cache keys, so passing new `args` objects with the same contents each render does not refetch. When `args` change but the key does not, such as a new token the key leaves out, later fetches and revalidations use the newest `args`. `initialData` and `hydrate` only apply to the first read for a key, so a new `initialData` object each render is fine.
-- `suspense` can be a `boolean` variable. The return type is then `T | MutationResult<T>`.
+- `suspense` can be a `boolean` variable. The return type is then `T | SWRResult<T>`.
 - During hydration, the React hook first renders what the server rendered, which is `initialData` or the pending result. It then updates to the cached result. This keeps the first client render matching the server HTML.
-- `SWRStoreRoot` is deprecated. The hook does not need it, and it only renders its children.
 
 ### Solid
 
@@ -447,9 +464,9 @@ export default function App() {
 
 - `useSWRStore(store, args, options?)` returns a `Resource<T | undefined>`. It suspends while pending and holds the error on failure. Like the React hook, a `mutate` ends the suspense even when the fetch is still running.
 - During hydration, `useSWRStore` uses the data from server rendering and writes it to the cache, instead of fetching it again. With `initialData` and no `hydrate`, the initial data stays a placeholder and the client fetches. When the server failed, the client fetches too. The server data also replaces a fetch that another reader of the key, such as `useSWRStoreSuspenseless`, started first.
-- `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `MutationResult<T>` and never suspends.
+- `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `SWRResult<T>` and never suspends.
 
-Both accept `initialData`, `shouldRevalidate` and `hydrate`, with the same meaning as in [`store.get`](#storegetargs-options).
+Both accept `initialData` and `revalidate`, with the same meaning as in [`store.get`](#storegetargs-options), and `hydrate`, which writes `initialData` with [`store.hydrate`](#storehydrateargs-data).
 
 ## License
 

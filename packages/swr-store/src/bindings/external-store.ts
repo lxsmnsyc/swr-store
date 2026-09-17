@@ -1,4 +1,4 @@
-import type { MutationPending, MutationResult } from '../cache/mutation-cache';
+import type { SWRPending, SWRResult } from '../cache/mutation-cache';
 import { subscribe } from '../global';
 import { getServerRead } from '../server-read';
 import type { SWRStore } from '../types';
@@ -8,23 +8,23 @@ export const SERVER_SUSPENSE_ERROR =
 
 export interface ExternalStoreOptions<T> {
   initialData?: T;
-  shouldRevalidate?: boolean;
+  revalidate?: boolean;
   hydrate?: boolean;
 }
 
 export interface ExternalStore<T> {
-  read: () => MutationResult<T>;
+  read: () => SWRResult<T>;
   // What the server rendered. Used during hydration.
-  readServer: () => MutationResult<T>;
+  readServer: () => SWRResult<T>;
   subscribe: (notify: () => void) => () => void;
   // Revalidates a failure during render, so a component that throws it can
   // recover once the failure is no longer fresh.
-  retryFailure: () => MutationResult<T>;
+  retryFailure: () => SWRResult<T>;
   // A promise that resolves when a pending result can be shown. It never
   // rejects, and its value is not the data. React can replay a suspended
   // render with the promise of an earlier attempt, so the data is always
   // read from the store instead.
-  wait: (pending: MutationPending<T>) => Promise<void>;
+  wait: (pending: SWRPending<T>) => Promise<void>;
   // Uses newer arguments for the same cache key, such as a new token. Call it
   // after each render commits.
   setArgs: (args: unknown[]) => void;
@@ -32,7 +32,7 @@ export interface ExternalStore<T> {
   revalidate: () => void;
 }
 
-const WAITERS = new WeakMap<MutationPending<unknown>, Promise<unknown>>();
+const WAITERS = new WeakMap<SWRPending<unknown>, Promise<unknown>>();
 
 // Returns a promise for a suspended component to wait on. It settles when the
 // pending result's fetch settles or when the cache entry is written, whichever
@@ -46,8 +46,8 @@ const WAITERS = new WeakMap<MutationPending<unknown>, Promise<unknown>>();
 export function waitForResult<T, P extends any[]>(
   store: SWRStore<T, P>,
   args: P,
-  pending: MutationPending<T>,
-  read: () => MutationResult<T>,
+  pending: SWRPending<T>,
+  read: () => SWRResult<T>,
 ): Promise<T> {
   const existing = WAITERS.get(pending);
   if (existing) {
@@ -99,7 +99,7 @@ export const SETTLED: Promise<void> = Object.assign(Promise.resolve(), {
   value: undefined,
 });
 
-const SUSPENDERS = new WeakMap<MutationPending<unknown>, Promise<void>>();
+const SUSPENDERS = new WeakMap<SWRPending<unknown>, Promise<void>>();
 
 export function isSameArgs<P extends unknown[]>(prev: P, next: P): boolean {
   if (prev === next) {
@@ -116,7 +116,7 @@ export function isSameArgs<P extends unknown[]>(prev: P, next: P): boolean {
   return true;
 }
 
-export function isSameResult<T>(a: MutationResult<T>, b: MutationResult<T>): boolean {
+export function isSameResult<T>(a: SWRResult<T>, b: SWRResult<T>): boolean {
   return a.status === b.status && Object.is(a.data, b.data);
 }
 
@@ -141,13 +141,12 @@ export function createExternalStore<T, P extends any[] = []>(
   let latestArgs = args;
   let resubscribe: (() => void) | undefined;
 
-  const read = (shouldRevalidate: boolean): MutationResult<T> =>
-    store.get(latestArgs, {
-      shouldRevalidate,
-      initialData: options.initialData,
-      hydrate: options.hydrate,
-    });
+  const read = (revalidate: boolean): SWRResult<T> =>
+    store.get(latestArgs, { revalidate, initialData: options.initialData });
 
+  if (options.hydrate && options.initialData !== undefined) {
+    store.hydrate(args, options.initialData);
+  }
   let current = read(false);
 
   const refresh = (): boolean => {
@@ -159,11 +158,11 @@ export function createExternalStore<T, P extends any[] = []>(
     return true;
   };
 
-  let serverResult: MutationResult<T> | undefined;
+  let serverResult: SWRResult<T> | undefined;
   let revalidated = false;
 
   return {
-    read: (): MutationResult<T> => {
+    read: (): SWRResult<T> => {
       // A component that suspends again after mounting can miss the
       // notification for the fetch it waits on. Reading the cache again
       // while pending lets its retry see the settled result.
@@ -172,7 +171,7 @@ export function createExternalStore<T, P extends any[] = []>(
       }
       return current;
     },
-    readServer: (): MutationResult<T> => {
+    readServer: (): SWRResult<T> => {
       // The snapshot has to stay the same object between calls.
       serverResult ??=
         getServerRead(store)?.(latestArgs, { initialData: options.initialData }) ?? current;
@@ -210,7 +209,7 @@ export function createExternalStore<T, P extends any[] = []>(
       latestArgs = nextArgs;
       resubscribe?.();
     },
-    retryFailure: (): MutationResult<T> => {
+    retryFailure: (): SWRResult<T> => {
       const next = read(true);
       if (!isSameResult(current, next)) {
         current = next;
@@ -233,7 +232,7 @@ export function createExternalStore<T, P extends any[] = []>(
       // Only once. React runs effects again when suspended content comes
       // back, and in StrictMode on every mount. Revalidating each time would
       // replace data that just arrived and suspend again.
-      if (revalidated || options.shouldRevalidate === false) {
+      if (revalidated || options.revalidate === false) {
         return;
       }
       revalidated = true;

@@ -3,7 +3,7 @@ import { h } from 'preact';
 import { Suspense } from 'preact/compat';
 import { describe, expect, it, vi } from 'vitest';
 import { createSWRStore } from '../../src';
-import { SWRStoreRoot, useSWRStore } from '../../src/preact';
+import { useSWRStore } from '../../src/preact';
 import { createDeferred, uniqueKey } from '../utils';
 
 describe('useSWRStore', () => {
@@ -49,13 +49,13 @@ describe('useSWRStore', () => {
       get: async () => 'fetched',
       initialData: 'initial',
     });
-    store.mutate([], { status: 'success', data: 'first' }, false);
+    store.mutate([], 'first', { revalidate: false });
 
     const { result } = renderHook(() => useSWRStore(store, []));
     expect(result.current).toEqual({ status: 'success', data: 'first' });
 
     await act(() => {
-      store.mutate([], { status: 'success', data: 'second' }, false);
+      store.mutate([], 'second', { revalidate: false });
     });
     expect(result.current).toEqual({ status: 'success', data: 'second' });
   });
@@ -66,8 +66,8 @@ describe('useSWRStore', () => {
       key: (id) => `${prefix}-${id}`,
       get: async (id) => id,
     });
-    store.mutate(['a'], { status: 'success', data: 'a' }, false);
-    store.mutate(['b'], { status: 'success', data: 'b' }, false);
+    store.mutate(['a'], 'a', { revalidate: false });
+    store.mutate(['b'], 'b', { revalidate: false });
 
     const { result, rerender } = renderHook(({ id }: { id: string }) => useSWRStore(store, [id]), {
       initialProps: { id: 'a' },
@@ -127,18 +127,11 @@ describe('useSWRStore', () => {
       key: () => key,
       get: async () => 'value',
     });
-    store.mutate([], { status: 'failure', data: error }, false);
+    store.setResult([], { status: 'failure', data: error }, { revalidate: false });
 
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     expect(() => renderHook(() => useSWRStore(store, [], { suspense: true }))).toThrow(error);
     vi.restoreAllMocks();
-  });
-});
-
-describe('SWRStoreRoot', () => {
-  it('renders its children', () => {
-    render(h(SWRStoreRoot, null, 'child'));
-    expect(screen.getByText('child')).toBeDefined();
   });
 });
 
@@ -189,7 +182,7 @@ describe('Preact stability', () => {
 
     renderHook(() => useSWRStore(store, [], { initialData: 'server', hydrate: true }));
 
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'server',
     });
@@ -240,7 +233,7 @@ describe('Preact suspense recovery', () => {
     }
 
     const view = render(h(Suspense, { fallback: 'loading' }, h(Data, null)));
-    store.mutate([], { status: 'success', data: 'mutated' }, false);
+    store.mutate([], 'mutated', { revalidate: false });
 
     await waitFor(() => {
       expect(view.container.textContent).toBe('mutated');

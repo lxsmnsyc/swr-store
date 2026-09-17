@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Mutation } from '../../src';
-import { createSWRStore, mutate, setCacheSize, subscribe, trigger } from '../../src';
+import type { SWREntry } from '../../src';
+import { createSWRStore, mutate, setCacheSize, setResult, subscribe, trigger } from '../../src';
 import { createDeferred, flush, uniqueKey } from '../utils';
 
 afterEach(() => {
@@ -68,7 +68,7 @@ describe('createSWRStore', () => {
     // Stale: the old data comes back and a fetch starts in the background.
     expect(store.get([])).toEqual({ status: 'success', data: 1 });
     await flush();
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 2,
     });
@@ -90,7 +90,7 @@ describe('createSWRStore', () => {
     expect(store.get([]).status).toBe('pending');
   });
 
-  it('skips revalidation when shouldRevalidate is false', async () => {
+  it('skips revalidation when revalidate is false', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const key = uniqueKey('no-revalidate');
     const get = vi.fn(async () => 'value');
@@ -103,7 +103,7 @@ describe('createSWRStore', () => {
     await store.get([]).data;
     vi.setSystemTime(Date.now() + 10);
 
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'value',
     });
@@ -133,7 +133,7 @@ describe('createSWRStore', () => {
     store.get([]);
     await flush();
 
-    expect(store.get([], { shouldRevalidate: false })).toEqual({ status: 'success', data: 'v2' });
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'v2' });
     expect(reportError).toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
@@ -148,9 +148,9 @@ describe('createSWRStore', () => {
     });
 
     await store.get([]).data;
-    const settled = store.get([], { shouldRevalidate: false });
+    const settled = store.get([], { revalidate: false });
 
-    const listener = vi.fn<(mutation: Mutation<{ id: number }>) => void>();
+    const listener = vi.fn<(mutation: SWREntry<{ id: number }>) => void>();
     const unsubscribe = store.subscribe([], listener);
 
     vi.setSystemTime(Date.now() + 10);
@@ -162,7 +162,7 @@ describe('createSWRStore', () => {
     for (const [mutation] of listener.mock.calls) {
       expect(mutation.result).toBe(settled);
     }
-    expect(store.get([], { shouldRevalidate: false })).toBe(settled);
+    expect(store.get([], { revalidate: false })).toBe(settled);
     unsubscribe();
   });
 
@@ -181,7 +181,7 @@ describe('createSWRStore', () => {
 
     await expect(store.get([]).data).rejects.toBe(error);
     expect(get).toHaveBeenCalledTimes(3);
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'failure',
       data: error,
     });
@@ -245,15 +245,38 @@ describe('createSWRStore', () => {
     });
   });
 
-  it('writes initialData to the cache when hydrate is set', () => {
+  it('writes hydrated data to the cache', () => {
     const key = uniqueKey('hydrate');
     const get = vi.fn(async () => 'fetched');
     const store = createSWRStore<string>({ key: () => key, get });
 
-    store.get([], { initialData: 'initial', hydrate: true });
+    store.hydrate([], 'server');
 
-    expect(store.get([])).toEqual({ status: 'success', data: 'initial' });
+    expect(store.get([])).toEqual({ status: 'success', data: 'server' });
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it('keeps a settled entry when hydrating', async () => {
+    const key = uniqueKey('hydrate-settled');
+    const store = createSWRStore<string>({ key: () => key, get: async () => 'fetched' });
+
+    await store.get([]).data;
+    store.hydrate([], 'server');
+
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'fetched' });
+  });
+
+  it('replaces a pending entry when hydrating, and drops the running fetch', async () => {
+    const key = uniqueKey('hydrate-pending');
+    const deferred = createDeferred<string>();
+    const store = createSWRStore<string>({ key: () => key, get: async () => deferred.promise });
+
+    expect(store.get([]).status).toBe('pending');
+    store.hydrate([], 'server');
+    deferred.resolve('fetched');
+    await flush();
+
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'server' });
   });
 
   it('falls back to the initialData option of the store', async () => {
@@ -301,12 +324,12 @@ describe('createSWRStore', () => {
 
     store.get([]);
     vi.setSystemTime(Date.now() + 10);
-    store.mutate([], { status: 'success', data: 'mutated' }, false);
+    store.mutate([], 'mutated', { revalidate: false });
 
     deferred.resolve('fetched');
     await flush();
 
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'mutated',
     });
@@ -333,7 +356,7 @@ describe('subscriptions', () => {
 
     unsubscribe();
     listener.mockClear();
-    store.mutate([], { status: 'success', data: 'other' }, false);
+    store.mutate([], 'other', { revalidate: false });
     expect(listener).not.toHaveBeenCalled();
   });
 
@@ -370,10 +393,10 @@ describe('subscriptions', () => {
 
     const listener = vi.fn();
     const unsubscribe = subscribe(key, listener);
-    mutate(key, { status: 'success', data: 'mutated' }, false);
+    mutate(key, 'mutated', { revalidate: false });
 
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'mutated',
     });
@@ -385,11 +408,11 @@ describe('subscriptions', () => {
     const listener = vi.fn();
     const unsubscribe = subscribe(key, listener);
 
-    mutate(key, { status: 'success', data: { id: 1 } }, false);
-    mutate(key, { status: 'success', data: { id: 1 } }, false);
+    mutate(key, { id: 1 }, { revalidate: false });
+    mutate(key, { id: 1 }, { revalidate: false });
     expect(listener).toHaveBeenCalledTimes(1);
 
-    mutate(key, { status: 'success', data: { id: 1 } }, false, () => false);
+    mutate(key, { id: 1 }, { revalidate: false, compare: () => false });
     expect(listener).toHaveBeenCalledTimes(2);
     unsubscribe();
   });
@@ -432,7 +455,7 @@ describe('setCacheSize', () => {
       const unsubscribe = store.subscribe(['a'], vi.fn());
       await store.get(['b']).data;
 
-      expect(store.get(['a'], { shouldRevalidate: false })).toEqual({
+      expect(store.get(['a'], { revalidate: false })).toEqual({
         status: 'success',
         data: 'a',
       });
@@ -482,35 +505,17 @@ describe('regressions', () => {
     const unsubscribe = store.subscribe([], vi.fn());
     await store.get([]).data;
 
-    store.mutate([], { status: 'success', data: 'optimistic' });
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    store.mutate([], 'optimistic');
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'optimistic',
     });
 
     await flush();
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'server',
     });
-    unsubscribe();
-  });
-
-  it('does nothing when trigger is called with shouldRevalidate false', async () => {
-    const key = uniqueKey('trigger-false');
-    const get = vi.fn(async () => 'value');
-    const store = createSWRStore<string>({
-      key: () => key,
-      get,
-      freshAge: 0,
-      staleAge: 0,
-    });
-
-    const unsubscribe = store.subscribe([], vi.fn());
-    await store.get([]).data;
-    store.trigger([], false);
-
-    expect(get).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
 });
@@ -543,7 +548,7 @@ describe('notifications', () => {
     await first.get([]).data;
     get.mockClear();
 
-    mutate(key, { status: 'success', data: 'optimistic' });
+    mutate(key, 'optimistic');
 
     expect(get).toHaveBeenCalledTimes(1);
     unsubscribeFirst();
@@ -591,11 +596,11 @@ describe('fetch ordering', () => {
     });
 
     store.get([]);
-    store.mutate([], { status: 'success', data: 'mutated' }, false);
+    store.mutate([], 'mutated', { revalidate: false });
     deferred.resolve('fetched');
     await flush();
 
-    expect(store.get([], { shouldRevalidate: false })).toEqual({
+    expect(store.get([], { revalidate: false })).toEqual({
       status: 'success',
       data: 'mutated',
     });
@@ -645,7 +650,7 @@ describe('fetch ordering', () => {
     const unsubscribe = store.subscribe([], listener);
 
     store.get([]);
-    store.mutate([], { status: 'success', data: 'mutated' }, false);
+    store.mutate([], 'mutated', { revalidate: false });
     await flush();
 
     expect(listener).toHaveBeenCalledTimes(1);
@@ -670,13 +675,13 @@ describe('eviction', () => {
       const store = createSWRStore<string>({ key: () => `${prefix}-fetched`, get });
 
       store.get([]);
-      holder.mutate([], { status: 'success', data: 'other' }, false);
+      holder.mutate([], 'other', { revalidate: false });
       expect(store.get([]).status).toBe('pending');
       expect(get).toHaveBeenCalledTimes(1);
 
       deferred.resolve('value');
       await flush();
-      expect(store.get([], { shouldRevalidate: false })).toEqual({
+      expect(store.get([], { revalidate: false })).toEqual({
         status: 'success',
         data: 'value',
       });
@@ -696,7 +701,7 @@ describe('eviction', () => {
     const other = createSWRStore<string>({ key: () => `${prefix}-b`, get: async () => 'b' });
 
     store.get([]);
-    store.mutate([], { status: 'success', data: 'optimistic' }, false);
+    store.mutate([], 'optimistic', { revalidate: false });
     setCacheSize(1);
     try {
       // The pinned key stays while its fetch runs, so it is evicted only after
@@ -704,7 +709,7 @@ describe('eviction', () => {
       await other.get([]).data;
       deferred.resolve('old');
       await flush();
-      expect(store.get([], { shouldRevalidate: false })).toEqual({
+      expect(store.get([], { revalidate: false })).toEqual({
         status: 'success',
         data: 'optimistic',
       });
@@ -727,7 +732,7 @@ describe('notification details', () => {
       calls.push('b');
     });
 
-    mutate(key, { status: 'success', data: 'value' }, false);
+    mutate(key, 'value', { revalidate: false });
 
     expect(calls).toEqual(['a']);
     unsubscribeA();
@@ -751,13 +756,13 @@ describe('notification details', () => {
       staleAge: 10_000,
     });
     await store.get([]).data;
-    const listener = vi.fn<(mutation: Mutation<string>) => void>();
+    const listener = vi.fn<(mutation: SWREntry<string>) => void>();
     const unsubscribe = store.subscribe([], listener);
 
     vi.setSystemTime(Date.now() + 100);
     store.get([]);
     await flush();
-    store.mutate([], { status: 'success', data: 'value' }, false);
+    store.mutate([], 'value', { revalidate: false });
     deferred.resolve('value');
     await flush();
 
@@ -774,7 +779,7 @@ describe('notification details', () => {
       freshAge: 10,
       staleAge: 10_000,
     });
-    store.mutate([], { status: 'failure', data: new Error('failed') }, false);
+    store.setResult([], { status: 'failure', data: new Error('failed') }, { revalidate: false });
 
     vi.setSystemTime(Date.now() + 100);
     expect(store.get([]).status).toBe('pending');
@@ -836,8 +841,8 @@ describe('user code errors', () => {
       unsubscribeNext();
       // With no subscribers and no running fetch, `a` can be evicted.
       await store.get(['b']).data;
-      store.mutate(['c'], { status: 'success', data: 'c' }, false);
-      expect(store.get(['a'], { shouldRevalidate: false }).status).toBe('pending');
+      store.mutate(['c'], 'c', { revalidate: false });
+      expect(store.get(['a'], { revalidate: false }).status).toBe('pending');
     } finally {
       setCacheSize(1000);
       vi.unstubAllGlobals();
@@ -849,10 +854,10 @@ describe('mutate with a pending result', () => {
   it('writes the outcome when no store fetches the key', async () => {
     const key = uniqueKey('mutate-pending');
     const deferred = createDeferred<string>();
-    const listener = vi.fn<(mutation: Mutation<string>) => void>();
+    const listener = vi.fn<(mutation: SWREntry<string>) => void>();
     const unsubscribe = subscribe(key, listener);
 
-    mutate(key, { status: 'pending', data: deferred.promise }, false);
+    setResult(key, { status: 'pending', data: deferred.promise }, { revalidate: false });
     deferred.resolve('value');
     await flush();
 
@@ -863,15 +868,48 @@ describe('mutate with a pending result', () => {
   it('keeps a newer write', async () => {
     const key = uniqueKey('mutate-pending-newer');
     const deferred = createDeferred<string>();
-    const listener = vi.fn<(mutation: Mutation<string>) => void>();
+    const listener = vi.fn<(mutation: SWREntry<string>) => void>();
     const unsubscribe = subscribe(key, listener);
 
-    mutate(key, { status: 'pending', data: deferred.promise }, false);
-    mutate(key, { status: 'success', data: 'newer' }, false);
+    setResult(key, { status: 'pending', data: deferred.promise }, { revalidate: false });
+    mutate(key, 'newer', { revalidate: false });
     deferred.resolve('older');
     await flush();
 
     expect(listener.mock.lastCall?.[0].result).toEqual({ status: 'success', data: 'newer' });
     unsubscribe();
+  });
+});
+
+describe('mutate values', () => {
+  it('passes the cached data to an updater', async () => {
+    const key = uniqueKey('mutate-updater');
+    const store = createSWRStore<number>({ key: () => key, get: async () => 1 });
+
+    await store.get([]).data;
+    store.mutate([], (previous) => (previous ?? 0) + 1, { revalidate: false });
+
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 2 });
+  });
+
+  it('passes undefined to an updater when the entry holds no data', () => {
+    const key = uniqueKey('mutate-updater-empty');
+    const updater = vi.fn((previous: number | undefined) => (previous ?? 0) + 1);
+
+    mutate(key, updater, { revalidate: false });
+
+    expect(updater).toHaveBeenCalledWith(undefined);
+  });
+
+  it('uses the store compare when the options leave it undefined', async () => {
+    const key = uniqueKey('mutate-store-compare');
+    const compare = vi.fn(() => true);
+    const store = createSWRStore<string>({ key: () => key, get: async () => 'value', compare });
+
+    await store.get([]).data;
+    store.mutate([], 'other', { revalidate: false, compare: undefined });
+
+    expect(compare).toHaveBeenCalled();
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'value' });
   });
 });

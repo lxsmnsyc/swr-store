@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react';
 import * as React from 'react';
-import type { MutationResult } from '../cache/mutation-cache';
+import type { SWRResult } from '../cache/mutation-cache';
 import type { ExternalStore } from '../bindings/external-store';
 import { SERVER_SUSPENSE_ERROR, SETTLED, createExternalStore } from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
@@ -14,7 +13,7 @@ const { use } = React as Partial<Pick<typeof React, 'use'>>;
 
 interface BaseOptions<T> {
   initialData?: T;
-  shouldRevalidate?: boolean;
+  revalidate?: boolean;
   hydrate?: boolean;
 }
 
@@ -33,7 +32,7 @@ export interface UseSWRStoreOptions<T> extends BaseOptions<T> {
 interface Source<T, P extends any[]> {
   store: SWRStore<T, P>;
   key: string;
-  shouldRevalidate: boolean | undefined;
+  revalidate: boolean | undefined;
   external: ExternalStore<T>;
 }
 
@@ -41,7 +40,7 @@ export function useSWRStore<T, P extends any[] = []>(
   store: SWRStore<T, P>,
   args: P,
   options?: WithoutSuspenseOptions<T>,
-): MutationResult<T>;
+): SWRResult<T>;
 export function useSWRStore<T, P extends any[] = []>(
   store: SWRStore<T, P>,
   args: P,
@@ -51,13 +50,13 @@ export function useSWRStore<T, P extends any[] = []>(
   store: SWRStore<T, P>,
   args: P,
   options?: UseSWRStoreOptions<T>,
-): MutationResult<T> | T;
+): SWRResult<T> | T;
 export function useSWRStore<T, P extends any[] = []>(
   store: SWRStore<T, P>,
   args: P,
   options: UseSWRStoreOptions<T> = {},
-): MutationResult<T> | T {
-  const { suspense, initialData, shouldRevalidate, hydrate } = options;
+): SWRResult<T> | T {
+  const { suspense, initialData, revalidate, hydrate } = options;
 
   // The source is rebuilt when the cache key changes, not when `args` or
   // `initialData` are new objects with the same contents. Initial data only
@@ -66,18 +65,14 @@ export function useSWRStore<T, P extends any[] = []>(
   const createSource = (): Source<T, P> => ({
     store,
     key,
-    shouldRevalidate,
-    external: createExternalStore(store, args, { initialData, shouldRevalidate, hydrate }),
+    revalidate,
+    external: createExternalStore(store, args, { initialData, revalidate, hydrate }),
   });
 
   const [source, setSource] = React.useState(createSource);
 
   let current = source;
-  if (
-    current.store !== store ||
-    current.key !== key ||
-    current.shouldRevalidate !== shouldRevalidate
-  ) {
+  if (current.store !== store || current.key !== key || current.revalidate !== revalidate) {
     current = createSource();
     setSource(current);
   }
@@ -142,16 +137,4 @@ export function useSWRStore<T, P extends any[] = []>(
     return shown.data;
   }
   return value;
-}
-
-export interface SWRStoreRootProps {
-  children?: ReactNode;
-}
-
-/**
- * @deprecated `useSWRStore` no longer needs a root, so this component only
- * renders its children.
- */
-export function SWRStoreRoot(props: SWRStoreRootProps): ReactNode {
-  return props.children;
 }

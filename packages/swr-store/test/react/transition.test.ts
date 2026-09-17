@@ -37,7 +37,7 @@ describe('useSWRStore outside act', () => {
           const unsubscribe = subscribe<string>(key, (mutation) => {
             if (mutation.result.status === 'success' && mutation.result.data === 'first') {
               unsubscribe();
-              store.mutate([], { status: 'success', data: 'second' }, false);
+              store.mutate([], 'second', { revalidate: false });
             }
           });
           deferred.resolve('first');

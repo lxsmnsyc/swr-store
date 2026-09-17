@@ -1,11 +1,18 @@
-export { mutate, setCacheSize, subscribe, trigger } from './global';
+export { mutate, setCacheSize, setResult, subscribe, trigger } from './global';
 export { default as createSWRStore } from './create-swr-store';
-export type * from './types';
 export type {
-  Mutation,
-  MutationListener,
-  MutationPending,
-  MutationSuccess,
-  MutationFailure,
-  MutationResult,
+  SWRCompare,
+  SWRGetOptions,
+  SWRMutateOptions,
+  SWRMutateValue,
+  SWRStore,
+  SWRStoreOptions,
+} from './types';
+export type {
+  SWREntry,
+  SWRListener,
+  SWRPending,
+  SWRSuccess,
+  SWRFailure,
+  SWRResult,
 } from './cache/mutation-cache';

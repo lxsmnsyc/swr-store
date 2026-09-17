@@ -1,33 +1,31 @@
-import type { MutationListener, MutationResult } from './cache/mutation-cache';
+import type { SWRListener, SWRResult } from './cache/mutation-cache';
 
 export type SWRCompare<T> = (a: T, b: T) => boolean;
 
-export type SWRTrigger<P extends any[] = []> = (args: P, shouldRevalidate?: boolean) => void;
-
-export type SWRMutate<T, P extends any[] = []> = (
-  args: P,
-  data: MutationResult<T>,
-  shouldRevalidate?: boolean,
-  compare?: SWRCompare<T>,
-) => void;
-
 export interface SWRGetOptions<T> {
-  shouldRevalidate?: boolean;
+  /**
+   * When `false`, returns the cached result without checking its age. A
+   * fetch still starts when there is nothing to show.
+   */
+  revalidate?: boolean;
+  /** Returned while there is no cache entry. */
   initialData?: T;
-  hydrate?: boolean;
 }
 
-export type SWRGet<T, P extends any[] = []> = (
-  args: P,
-  options?: SWRGetOptions<T>,
-) => MutationResult<T>;
+export interface SWRMutateOptions<T> {
+  /**
+   * When `true`, the subscribed stores fetch again after the write, even when
+   * the entry is fresh. Defaults to `true`.
+   */
+  revalidate?: boolean;
+  /** Checks whether the written data equals the cached data. */
+  compare?: SWRCompare<T>;
+}
 
-export type SWRSubscribe<T, P extends any[] = []> = (
-  args: P,
-  listener: MutationListener<T>,
-) => () => void;
+/** New data, or a function that returns it from the cached data. */
+export type SWRMutateValue<T> = T | ((previous: T | undefined) => T);
 
-export interface SWRStoreBaseOptions<T, P extends any[] = []> {
+export interface SWRStoreOptions<T, P extends any[] = []> {
   get: (...args: P) => Promise<T>;
   /**
    * Returns the cache key for the arguments. Build it from what makes the
@@ -38,39 +36,39 @@ export interface SWRStoreBaseOptions<T, P extends any[] = []> {
   initialData?: T;
   refreshInterval?: number;
   maxRetryCount?: number;
+
+  revalidateOnFocus?: boolean;
+  revalidateOnVisibility?: boolean;
+  revalidateOnNetwork?: boolean;
+
+  refreshWhenOffline?: boolean;
+  refreshWhenHidden?: boolean;
+  refreshWhenBlurred?: boolean;
+
+  freshAge?: number;
+  staleAge?: number;
+
+  compare?: SWRCompare<T>;
+
+  maxRetryInterval?: number;
 }
-
-export interface SWRStoreExtendedOptions<T> {
-  revalidateOnFocus: boolean;
-  revalidateOnVisibility: boolean;
-  revalidateOnNetwork: boolean;
-
-  refreshWhenOffline: boolean;
-  refreshWhenHidden: boolean;
-  refreshWhenBlurred: boolean;
-
-  freshAge: number;
-  staleAge: number;
-
-  compare: SWRCompare<T>;
-
-  maxRetryInterval: number;
-}
-
-export type SWRStorePartialOptions<T> = Partial<SWRStoreExtendedOptions<T>>;
-
-export interface SWRStoreOptions<T, P extends any[] = []>
-  extends SWRStorePartialOptions<T>, SWRStoreBaseOptions<T, P> {}
-
-export interface SWRFullOptions<T, P extends any[] = []>
-  extends SWRStoreExtendedOptions<T>, SWRStoreBaseOptions<T, P> {}
 
 export interface SWRStore<T, P extends any[] = []> {
-  id: string;
   /** Returns the cache key for `args`, for use with the global functions. */
   getKey: (args: P) => string;
-  trigger: SWRTrigger<P>;
-  mutate: SWRMutate<T, P>;
-  get: SWRGet<T, P>;
-  subscribe: SWRSubscribe<T, P>;
+  /** Reads the cache entry for `args`, and fetches when it is missing or old. */
+  get: (args: P, options?: SWRGetOptions<T>) => SWRResult<T>;
+  /** Calls `listener` every time the cache entry for `args` is written. */
+  subscribe: (args: P, listener: SWRListener<T>) => () => void;
+  /** Asks the subscribed stores for the key of `args` to revalidate. */
+  trigger: (args: P) => void;
+  /** Writes successful data to the cache entry for `args`. */
+  mutate: (args: P, value: SWRMutateValue<T>, options?: SWRMutateOptions<T>) => void;
+  /** Writes any result, such as a failure, to the cache entry for `args`. */
+  setResult: (args: P, result: SWRResult<T>, options?: SWRMutateOptions<T>) => void;
+  /**
+   * Writes data rendered on the server to the cache entry for `args`, unless
+   * the entry already holds a settled result.
+   */
+  hydrate: (args: P, data: T) => void;
 }

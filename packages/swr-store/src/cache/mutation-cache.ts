@@ -8,22 +8,22 @@ import {
   subscribeReactiveCache,
 } from './reactive-cache';
 
-export interface MutationPending<T> {
+export interface SWRPending<T> {
   data: Promise<T>;
   status: 'pending';
 }
-export interface MutationSuccess<T> {
+export interface SWRSuccess<T> {
   data: T;
   status: 'success';
 }
-export interface MutationFailure {
+export interface SWRFailure {
   data: any;
   status: 'failure';
 }
-export type MutationResult<T> = MutationPending<T> | MutationSuccess<T> | MutationFailure;
+export type SWRResult<T> = SWRPending<T> | SWRSuccess<T> | SWRFailure;
 
-export interface Mutation<T> {
-  result: MutationResult<T>;
+export interface SWREntry<T> {
+  result: SWRResult<T>;
   timestamp: number;
   isValidating: boolean;
 }
@@ -39,16 +39,16 @@ interface Pin {
 // is outdated when the entry is gone.
 const pins = new Map<string, Pin>();
 
-export const MUTATION_CACHE = createReactiveCache<Mutation<any>>(undefined, (key) => pins.has(key));
+export const MUTATION_CACHE = createReactiveCache<SWREntry<any>>(undefined, (key) => pins.has(key));
 
-export type MutationListener<T> = ReactiveCacheListener<Mutation<T>>;
+export type SWRListener<T> = ReactiveCacheListener<SWREntry<T>>;
 
-export function subscribeMutation<T>(key: string, listener: MutationListener<T>): () => void {
+export function subscribeMutation<T>(key: string, listener: SWRListener<T>): () => void {
   return subscribeReactiveCache(MUTATION_CACHE, key, listener);
 }
 
 let lastVersion = 0;
-const VERSIONS = new WeakMap<Mutation<unknown>, number>();
+const VERSIONS = new WeakMap<SWREntry<unknown>, number>();
 
 // Every write gets a version that is higher than any version before it. A
 // fetch compares versions to tell whether the entry was written after it
@@ -59,11 +59,11 @@ export function nextVersion(): number {
   return lastVersion;
 }
 
-export function getVersion(mutation: Mutation<unknown>): number {
+export function getVersion(mutation: SWREntry<unknown>): number {
   return VERSIONS.get(mutation) ?? 0;
 }
 
-function setVersion(key: string, value: Mutation<unknown>): void {
+function setVersion(key: string, value: SWREntry<unknown>): void {
   const version = nextVersion();
   VERSIONS.set(value, version);
   const pin = pins.get(key);
@@ -98,7 +98,7 @@ export function getLastWriteVersion(key: string): number {
   return Math.max(pins.get(key)?.version ?? 0, entry ? getVersion(entry.value) : 0);
 }
 
-export function setMutation<T>(key: string, value: Mutation<T>, notify = true): void {
+export function setMutation<T>(key: string, value: SWREntry<T>, notify = true): void {
   setVersion(key, value);
   setReactiveCacheValue(MUTATION_CACHE, key, value, notify);
 }
@@ -106,13 +106,13 @@ export function setMutation<T>(key: string, value: Mutation<T>, notify = true): 
 // Writes now and notifies subscribers in a microtask. Reads can write to the
 // cache while a UI library is rendering, and notifying right away would make
 // other components update in the middle of that render.
-export function setMutationDeferred<T>(key: string, value: Mutation<T>): void {
+export function setMutationDeferred<T>(key: string, value: SWREntry<T>): void {
   setVersion(key, value);
   setReactiveCacheValue(MUTATION_CACHE, key, value, false);
   scheduleReactiveCacheNotify(MUTATION_CACHE, key);
 }
 
-export function getMutation<T>(key: string): Mutation<T> | undefined {
+export function getMutation<T>(key: string): SWREntry<T> | undefined {
   return getReactiveCacheValue(MUTATION_CACHE, key);
 }
 
