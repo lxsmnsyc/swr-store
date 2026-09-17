@@ -129,4 +129,32 @@ describe('LRUMap', () => {
     locked.set('a', 1).set('b', 2);
     expect(locked.size).toBe(2);
   });
+
+  it('skips entries deleted before iteration reaches them', () => {
+    const map = new LRUMap<string, number>(10);
+    map.set('a', 1).set('b', 2).set('c', 3).set('d', 4);
+
+    const seen: string[] = [];
+    map.forEach((_value, key) => {
+      seen.push(key);
+      if (key === 'd') {
+        map.delete('c');
+      }
+    });
+
+    expect(seen).toEqual(['d', 'b', 'a']);
+  });
+
+  it('does not loop when the callback reads entries', () => {
+    const map = new LRUMap<string, number>(10);
+    map.set('a', 1).set('b', 2);
+
+    const seen: string[] = [];
+    for (const [key] of map) {
+      seen.push(key);
+      map.get(key);
+    }
+
+    expect(seen).toEqual(['b', 'a']);
+  });
 });

@@ -550,3 +550,124 @@ describe('options', () => {
     expect(get).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('fetch ordering', () => {
+  it('shares a failing background fetch instead of starting another', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('failing-refresh');
+    let fail = false;
+    const get = vi.fn(async () => {
+      if (fail) {
+        throw new Error('failed');
+      }
+      return 'value';
+    });
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: 100,
+      maxRetryInterval: 50,
+    });
+
+    await store.get([]).data;
+    fail = true;
+
+    vi.setSystemTime(Date.now() + 200);
+    store.get([]);
+    expect(get).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(Date.now() + 200);
+    store.get([]);
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a write made in the same millisecond as a fetch start', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('same-millisecond');
+    const deferred = createDeferred<string>();
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => deferred.promise,
+    });
+
+    store.get([]);
+    store.mutate([], { status: 'success', data: 'mutated' }, false);
+    deferred.resolve('fetched');
+    await flush();
+
+    expect(store.get([], { shouldRevalidate: false })).toEqual({
+      status: 'success',
+      data: 'mutated',
+    });
+  });
+
+  it('shares the fetch started by a read with initialData', async () => {
+    const key = uniqueKey('placeholder-share');
+    const get = vi.fn(async () => 'value');
+    const store = createSWRStore<string>({ key: () => key, get });
+
+    store.get([], { initialData: 'initial' });
+    const pending = store.get([]);
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(pending.status).toBe('pending');
+    await expect(pending.data).resolves.toBe('value');
+  });
+
+  it('counts freshness from when a fetch settles', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('slow-fetch');
+    const deferred = createDeferred<string>();
+    const get = vi.fn(async () => deferred.promise);
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: 1000,
+      staleAge: 1000,
+    });
+
+    store.get([]);
+    vi.setSystemTime(Date.now() + 2500);
+    deferred.resolve('value');
+    await flush();
+
+    expect(store.get([])).toEqual({ status: 'success', data: 'value' });
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies once when a read and a write happen before the microtask', async () => {
+    const key = uniqueKey('single-notify');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => 'value',
+    });
+    const listener = vi.fn();
+    const unsubscribe = store.subscribe([], listener);
+
+    store.get([]);
+    store.mutate([], { status: 'success', data: 'mutated' }, false);
+    await flush();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+});
+
+describe('default key', () => {
+  it('tells apart values that JSON writes the same way', () => {
+    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
+
+    expect(store.getKey([undefined])).not.toBe(store.getKey([null]));
+    expect(store.getKey([new Map([['a', 1]])])).not.toBe(store.getKey([new Map([['b', 2]])]));
+    expect(store.getKey([new Set([1])])).not.toBe(store.getKey([new Set([2])]));
+    expect(store.getKey([1n])).not.toBe(store.getKey(['1']));
+  });
+
+  it('ignores the order of object keys', () => {
+    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
+
+    expect(store.getKey([{ a: 1, b: { c: 2, d: 3 } }])).toBe(
+      store.getKey([{ b: { d: 3, c: 2 }, a: 1 }]),
+    );
+  });
+});

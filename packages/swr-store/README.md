@@ -75,7 +75,8 @@ Reading a store returns a `MutationResult<T>`. Check `status` to find out what `
 
 In the browser, every store writes to one global cache. The `key` option turns the store arguments into a cache key.
 
-- By default the key is the store `name` followed by `JSON.stringify(args)`. Without a `name`, the store's id is used instead, and two stores never share an entry through their default keys.
+- By default the key is the store `name` followed by the serialized arguments. Without a `name`, the store's id is used instead, and two stores never share an entry through their default keys.
+- The default serialization is JSON with a few changes. Object keys are sorted, so `{ a, b }` and `{ b, a }` give the same key. `undefined`, `BigInt`, `Map` and `Set` values are written in a tagged form, so they do not collide with `null`, strings or empty objects. Circular values still throw.
 - Stores with a custom `key` share an entry when they produce the same key.
 - The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
 - The cache keeps up to 1000 entries. When it is full, the least recently used entry without subscribers is removed. Change the limit with [`setCacheSize`](#setcachesizesize).
@@ -106,7 +107,7 @@ privateData.get([userId, token]);
 
 ## Cache age
 
-Each cache entry has a timestamp. Its age decides what a read does.
+Each cache entry has a timestamp from when it was last written, such as when its fetch settled. Its age decides what a read does.
 
 | Age                             | State   | What `get` does                                            |
 | ------------------------------- | ------- | ---------------------------------------------------------- |
@@ -116,10 +117,11 @@ Each cache entry has a timestamp. Its age decides what a read does.
 
 - `freshAge` defaults to `2000` milliseconds.
 - `staleAge` defaults to `30000` milliseconds.
-- Starting a background fetch resets the timestamp, so the entry is fresh again.
 - Ages are only checked when the store is read or revalidated. Nothing expires on a timer.
 
-Reads within `freshAge` share one fetch, so calling `get` many times does not send many requests. When a fetch settles after a newer write to the same key, its result is dropped.
+A key has at most one running fetch. Reads that would fetch while one runs return the cached result, or the running fetch's pending result, instead of starting another. Only `mutate` replaces a running fetch, and only one that started before its write.
+
+When a fetch settles after a newer write to the same key, its result is dropped. Writes are ordered by when they happened, not by their timestamps, so this also holds within the same millisecond.
 
 ## Revalidation
 
@@ -151,13 +153,13 @@ All three default to `false`.
 
 ### Polling
 
-Set `refreshInterval` to a number of milliseconds to revalidate on an interval. Polling runs all the time by default. These options limit it:
+Set `refreshInterval` to a number of milliseconds, greater than `0`, to revalidate on an interval. Polling runs all the time by default. These options limit it:
 
 - `refreshWhenHidden` polls only while the page is hidden.
 - `refreshWhenBlurred` polls only while the window is not focused.
 - `refreshWhenOffline` polls only while the browser is offline.
 
-When one or more of these options is set, polling only happens in those states. Polling starts right away when the page is already in that state.
+When one or more of these options is set, a single interval runs while the page is in any of those states. Polling starts right away when the page is already in one of them.
 
 ## Initial data and hydration
 
@@ -197,6 +199,8 @@ When `get` throws or rejects, the store retries with exponential backoff.
 
 The result stays pending while the store retries. It becomes a failure once the retries run out.
 
+This also applies to a background refetch of successful data. When its retries run out, the failure replaces the cached data. Keep `maxRetryCount` unset if cached data should stay until a fetch succeeds.
+
 ## Server rendering
 
 The cache is shared by everything in the same JavaScript runtime. On a server, that would be every request, so the server never caches. This keeps one request from reading another request's data.
@@ -224,7 +228,7 @@ The bindings follow the same rules:
 
 ## Comparing results
 
-Before writing a fetched value, the store compares it with the cached value. When they are equal, the cached result is kept. Subscribers still get a new entry with `isValidating` set to `false`, but its `result` is the same object as before.
+Before writing a fetched value, the store compares it with the cached value. When they are equal, the cached result is kept, and the entry becomes fresh again. Subscribers still get a new entry with `isValidating` set to `false`, but its `result` is the same object as before.
 
 - The default comparison is a deep equality check from `dequal`.
 - Set `compare` to use your own function. It receives the old and new values and returns `true` when they are equal.
@@ -278,6 +282,7 @@ Calls `listener` every time the cache entry for `args` is written. Returns a fun
 
 - Writes from fetch results and `mutate` notify right away.
 - Writes made by a read, such as `get` starting a fetch, notify in a microtask. A read can happen while a UI library renders, and notifying right away would update other components in the middle of that render.
+- A write that notifies right away also covers a notification still waiting for its microtask, so a listener is not called twice with the same entry.
 
 The listener receives the cache entry:
 
@@ -387,11 +392,13 @@ For Preact, import from `swr-store/preact` and take `Suspense` from `preact/comp
 | ------------------ | -------------------------------------------------------------------------------------------------- | ----------------------- |
 | `suspense`         | When `true`, suspends while pending, throws the error on failure, and returns the data on success. | `false`                 |
 | `initialData`      | Returned while there is no cache entry.                                                            | The store `initialData` |
-| `shouldRevalidate` | When `false`, the first read does not check the cache age.                                         | `true`                  |
+| `hydrate`          | Writes `initialData` to the cache, as in `store.get`.                                              | `false`                 |
+| `shouldRevalidate` | When `false`, the hook does not revalidate after mounting.                                         | `true`                  |
 
 - Without `suspense`, the hook returns the `MutationResult<T>`.
-- `args` are compared item by item, so passing a new array with the same values each render does not refetch.
-- When a suspended component waited on a fetch, the next read returns that fetch's result even if the entry has already expired. Retrying the render does not start another fetch.
+- Rendering only reads the cache. It starts a fetch only when there is nothing to show. The hook revalidates once, after the component mounts. A render retried after suspending therefore shows the data it waited for, even when that data has already expired.
+- The hook compares cache keys, so passing new `args` objects with the same contents each render does not refetch. `initialData` and `hydrate` only apply to the first read for a key, so a new `initialData` object each render is fine.
+- `suspense` can be a `boolean` variable. The return type is then `T | MutationResult<T>`.
 - During hydration, the React hook first renders what the server rendered, which is `initialData` or the pending result. It then updates to the cached result. This keeps the first client render matching the server HTML.
 - `SWRStoreRoot` is deprecated. The hook does not need it, and it only renders its children.
 

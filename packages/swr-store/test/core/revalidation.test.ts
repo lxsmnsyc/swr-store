@@ -162,4 +162,61 @@ describe('revalidation sources', () => {
 
     unsubscribeFirst();
   });
+
+  it('runs one interval when several polling states are active', async () => {
+    const key = uniqueKey('combined-polling');
+    const get = vi.fn(async () => 'value');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: 0,
+      staleAge: 0,
+      refreshInterval: 1000,
+      refreshWhenHidden: true,
+      refreshWhenBlurred: true,
+    });
+    await store.get([]).data;
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+
+    vi.useFakeTimers();
+    const unsubscribe = store.subscribe([], vi.fn());
+    vi.advanceTimersByTime(1000);
+    expect(get).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    visibility.mockRestore();
+    focus.mockRestore();
+  });
+
+  it('does not poll with a refresh interval of zero', async () => {
+    const { get, store } = createStore({ refreshInterval: 0 });
+    await store.get([]).data;
+
+    vi.useFakeTimers();
+    const unsubscribe = store.subscribe([], vi.fn());
+    vi.advanceTimersByTime(1000);
+    expect(get).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it('revalidates an expired entry that a suspended read waited on', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('awaited-expired');
+    const get = vi.fn(async () => 'value');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: 10,
+      staleAge: 10,
+    });
+    const unsubscribe = store.subscribe([], vi.fn());
+    await store.get([]).data;
+
+    vi.setSystemTime(Date.now() + 100_000);
+    store.trigger([]);
+    expect(get).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    vi.useRealTimers();
+  });
 });

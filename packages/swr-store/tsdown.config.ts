@@ -9,6 +9,9 @@ export default defineConfig({
   },
   format: ['esm', 'cjs'],
   platform: 'neutral',
+  // Matches the TypeScript target. Without it, tsdown picks a target from
+  // `engines.node` and keeps newer syntax such as `??` in the output.
+  target: 'es2020',
   dts: true,
   exports: true,
 });

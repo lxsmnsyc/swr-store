@@ -1,13 +1,13 @@
 import type { Mutation, MutationPending, MutationResult } from './cache/mutation-cache';
 import {
-  AWAITED_PROMISES,
-  UNREAD_MUTATIONS,
   getMutation,
+  getVersion,
+  nextVersion,
   setMutation,
   setMutationDeferred,
 } from './cache/mutation-cache';
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
-import getDefaultConfig from './default-config';
+import getDefaultConfig, { serializeKey } from './default-config';
 import { mutate, subscribe, trigger } from './global';
 import IS_CLIENT, { HAS_DOCUMENT, HAS_WINDOW_EVENTS } from './is-client';
 import type { Retry } from './retry';
@@ -23,7 +23,15 @@ function getIndex(): number {
   return current;
 }
 
-const retries = new Map<string, Retry<any>>();
+interface Fetch<T> {
+  retry: Retry<T>;
+  // The pending result for readers that have no cache entry to return.
+  result: MutationPending<T>;
+  startedAt: number;
+}
+
+// The running fetch of each key. A key has at most one.
+const fetches = new Map<string, Fetch<any>>();
 
 // Copies the options that are set, so an `undefined` value keeps the default.
 function withDefaults<T extends object>(defaults: T, options?: Partial<T>): T {
@@ -84,197 +92,120 @@ function revalidate<T, P extends any[] = []>(
     return readOnServer(fullOpts, args, initialData);
   }
 
-  // Parse key
   const generatedKey = fullOpts.key(...args);
+  const now = Date.now();
 
-  // Capture timestamp
-  const timestamp = Date.now();
-
-  // Get current mutation
   let currentMutation = getMutation<T>(generatedKey);
 
-  // Initial data that is not written to the cache is only a placeholder.
-  // It is never fresh, so it does not stop the first fetch.
-  let isPlaceholder = false;
+  // Initial data that is not written to the cache is only a placeholder. It
+  // is returned until a fetch fills the cache, and never counts as fresh.
+  let placeholder: MutationResult<T> | undefined;
 
-  // Hydrate mutation
   if (!currentMutation && initialData !== undefined) {
-    currentMutation = {
-      result: {
-        data: initialData,
-        status: 'success',
-      },
-      timestamp,
-      isValidating: false,
-    };
-
     if (hydrate) {
+      currentMutation = {
+        result: { data: initialData, status: 'success' },
+        timestamp: now,
+        isValidating: false,
+      };
       setMutationDeferred(generatedKey, currentMutation);
     } else {
-      isPlaceholder = true;
+      placeholder = { data: initialData, status: 'success' };
     }
   }
 
-  let previousRetry: Retry<T> | undefined;
+  const running = fetches.get(generatedKey) as Fetch<T> | undefined;
+  const cached = currentMutation?.result ?? placeholder ?? running?.result;
 
-  if (currentMutation) {
-    if (!shouldRevalidate) {
-      return currentMutation.result;
-    }
-    if (UNREAD_MUTATIONS.has(currentMutation)) {
-      UNREAD_MUTATIONS.delete(currentMutation);
-      return currentMutation.result;
-    }
-    // A fetch started after the last write is already running, so a forced
-    // revalidation has nothing to add. This keeps stores that share a key
-    // from each fetching after `mutate`.
-    if (force && currentMutation.isValidating && retries.has(generatedKey)) {
-      return currentMutation.result;
-    }
-    if (isPlaceholder) {
-      // A fetch for this key is already running and will fill the cache.
-      if (retries.has(generatedKey)) {
-        return currentMutation.result;
-      }
-    } else if (!force && currentMutation.timestamp + fullOpts.freshAge > timestamp) {
-      // If mutation is still fresh, return mutation
-      return currentMutation.result;
-    }
+  if (cached && !shouldRevalidate) {
+    return cached;
+  }
 
-    // A pending fetch that is no longer fresh gets replaced by a new one.
-    // It is cancelled below, so it stops retrying.
-    if (currentMutation.result.status === 'pending') {
-      previousRetry = retries.get(generatedKey);
+  if (currentMutation && !force && currentMutation.timestamp + fullOpts.freshAge > now) {
+    return currentMutation.result;
+  }
+
+  // Reads share the running fetch instead of starting another. A forced
+  // revalidation replaces it, unless it already started after the last write.
+  if (running && cached) {
+    const startedAfterWrite = currentMutation?.isValidating ?? true;
+    if (!force || startedAfterWrite) {
+      return cached;
     }
   }
 
-  // Perform fetch
   const pendingRetry = retry(async () => fullOpts.get(...args), {
     count: fullOpts.maxRetryCount,
     interval: fullOpts.maxRetryInterval,
   });
-
-  // Set current retry
-  retries.set(generatedKey, pendingRetry);
-
   const pendingData = pendingRetry.resolvable.promise;
-
-  // The old promise settles with the new fetch, so whoever still waits on it
-  // gets the new data.
-  if (previousRetry) {
-    if (AWAITED_PROMISES.has(previousRetry.resolvable.promise)) {
-      AWAITED_PROMISES.add(pendingData);
-    }
-    previousRetry.cancel(pendingData);
-  }
-
-  // Writes a settled result. When a suspended component waited on this
-  // fetch, the entry is kept for its next read.
-  const writeSettled = (mutation: Mutation<T>): void => {
-    if (AWAITED_PROMISES.has(pendingData)) {
-      UNREAD_MUTATIONS.add(mutation);
-    }
-    setMutation(generatedKey, mutation);
-  };
-
-  // Capture result
   const result: MutationPending<T> = {
     data: pendingData,
     status: 'pending',
   };
+  const fetch: Fetch<T> = { retry: pendingRetry, result, startedAt: now };
+  fetches.set(generatedKey, fetch);
 
-  const clearRetry = (): void => {
-    if (retries.get(generatedKey) === pendingRetry) {
-      retries.delete(generatedKey);
+  // The old fetch stops retrying, and its promise settles with the new one,
+  // so whoever waits on it still gets data.
+  running?.retry.cancel(pendingData);
+
+  let returned: MutationResult<T>;
+  if (currentMutation && currentMutation.timestamp + fullOpts.freshAge + fullOpts.staleAge > now) {
+    // Stale: keep the cached result while the fetch runs.
+    returned = currentMutation.result;
+    setMutationDeferred(generatedKey, { ...currentMutation, isValidating: true });
+  } else if (currentMutation) {
+    // Expired: the cached result is replaced by the pending one.
+    returned = result;
+    setMutationDeferred(generatedKey, { result, timestamp: now, isValidating: true });
+  } else {
+    // No entry: a placeholder stays out of the cache until the fetch settles.
+    returned = placeholder ?? result;
+    if (!placeholder) {
+      setMutationDeferred(generatedKey, { result, timestamp: now, isValidating: true });
     }
+  }
+
+  // Any write after this point is newer than the fetch, and wins over it.
+  const version = nextVersion();
+
+  const settle = (write: (latest: Mutation<T> | undefined) => Mutation<T>): void => {
+    if (fetches.get(generatedKey) === fetch) {
+      fetches.delete(generatedKey);
+    }
+    const latest = getMutation<T>(generatedKey);
+    if (latest && getVersion(latest) > version) {
+      return;
+    }
+    setMutation(generatedKey, write(latest));
   };
 
-  // Watch for promise resolutions
-  // to update cache data
   pendingData.then(
     (data) => {
-      clearRetry();
-      const mutation = getMutation<T>(generatedKey);
-
-      // A newer write or fetch happened while this one ran. Keep it.
-      if (mutation && mutation.timestamp > timestamp) {
-        return;
-      }
-
-      // The data did not change, so subscribers only learn that the
-      // revalidation is over.
-      if (mutation?.result.status === 'success' && fullOpts.compare(mutation.result.data, data)) {
-        if (mutation.isValidating) {
-          writeSettled({ ...mutation, isValidating: false });
-        } else if (AWAITED_PROMISES.has(pendingData)) {
-          UNREAD_MUTATIONS.add(mutation);
+      settle((latest) => {
+        // Equal data keeps the cached result object, so subscribers that
+        // compare results do not update.
+        if (latest?.result.status === 'success' && fullOpts.compare(latest.result.data, data)) {
+          return { result: latest.result, timestamp: Date.now(), isValidating: false };
         }
-        return;
-      }
-
-      writeSettled({
-        result: {
-          data,
-          status: 'success',
-        },
-        // A zero timestamp counts as missing.
-        // oxlint-disable-next-line typescript/prefer-nullish-coalescing
-        timestamp: mutation?.timestamp || Date.now(),
-        isValidating: false,
+        return {
+          result: { data, status: 'success' },
+          timestamp: Date.now(),
+          isValidating: false,
+        };
       });
     },
-    (data: unknown) => {
-      clearRetry();
-      const mutation = getMutation<T>(generatedKey);
-
-      // A newer write or fetch happened while this one ran. Keep it.
-      if (mutation && mutation.timestamp > timestamp) {
-        return;
-      }
-
-      writeSettled({
-        result: {
-          data,
-          status: 'failure',
-        },
-        // A zero timestamp counts as missing.
-        // oxlint-disable-next-line typescript/prefer-nullish-coalescing
-        timestamp: mutation?.timestamp || Date.now(),
+    (error: unknown) => {
+      settle(() => ({
+        result: { data: error, status: 'failure' },
+        timestamp: Date.now(),
         isValidating: false,
-      });
+      }));
     },
   );
 
-  // A placeholder keeps being returned until the fetch fills the cache.
-  if (currentMutation && isPlaceholder) {
-    return currentMutation.result;
-  }
-
-  // If there's an existing mutation
-  // and mutation is stale
-  // keep its result while the fetch runs
-  if (
-    currentMutation &&
-    currentMutation.timestamp + fullOpts.freshAge + fullOpts.staleAge > timestamp
-  ) {
-    // Updating this means that the freshness or the staleness
-    // of a mutation resets
-    setMutationDeferred(generatedKey, {
-      result: currentMutation.result,
-      timestamp,
-      isValidating: true,
-    });
-    return currentMutation.result;
-  }
-
-  // Otherwise, set the new mutation
-  setMutationDeferred(generatedKey, {
-    result,
-    timestamp,
-    isValidating: true,
-  });
-
-  return result;
+  return returned;
 }
 
 // A promise that calls `start` the first time it is awaited or chained.
@@ -322,47 +253,65 @@ function register<T, P extends any[] = []>(
     setRevalidation(generatedKey, false);
   };
 
-  // Polls while `isActive` returns true. The check runs on every event in
-  // `events` and once at the start, so polling begins right away when the
-  // page is already in that state.
-  const pollWhile = (target: EventTarget, events: string[], isActive: () => boolean): void => {
-    let interval: ReturnType<typeof setInterval> | undefined;
-
-    const update = (): void => {
-      clearInterval(interval);
-      interval = isActive() ? setInterval(onRevalidate, fullOpts.refreshInterval) : undefined;
-    };
-
-    for (const event of events) {
-      target.addEventListener(event, update, false);
-    }
-    update();
-
-    cleanups.push(() => {
-      for (const event of events) {
-        target.removeEventListener(event, update, false);
-      }
-      clearInterval(interval);
-    });
-  };
-
   // Register polling interval
-  if (fullOpts.refreshInterval != null) {
+  if (fullOpts.refreshInterval != null && fullOpts.refreshInterval > 0) {
+    const { refreshInterval } = fullOpts;
+
     // Each state needs its own events. Where they are missing, such as in
-    // React Native or a web worker, that kind of polling does not start.
+    // React Native or a web worker, that state is left out.
+    const states: { target: EventTarget; events: string[]; isActive: () => boolean }[] = [];
     if (fullOpts.refreshWhenBlurred && HAS_WINDOW_EVENTS && HAS_DOCUMENT) {
-      pollWhile(window, ['blur', 'focus'], () => !document.hasFocus());
+      states.push({
+        target: window,
+        events: ['blur', 'focus'],
+        isActive: () => !document.hasFocus(),
+      });
     }
     if (fullOpts.refreshWhenOffline && HAS_WINDOW_EVENTS) {
-      pollWhile(window, ['offline', 'online'], () => !navigator.onLine);
+      states.push({
+        target: window,
+        events: ['offline', 'online'],
+        isActive: () => !navigator.onLine,
+      });
     }
     if (fullOpts.refreshWhenHidden && HAS_DOCUMENT) {
-      pollWhile(document, ['visibilitychange'], () => document.visibilityState !== 'visible');
+      states.push({
+        target: document,
+        events: ['visibilitychange'],
+        isActive: () => document.visibilityState !== 'visible',
+      });
     }
-    if (
-      !(fullOpts.refreshWhenHidden || fullOpts.refreshWhenBlurred || fullOpts.refreshWhenOffline)
-    ) {
-      const interval = setInterval(onRevalidate, fullOpts.refreshInterval);
+
+    if (fullOpts.refreshWhenHidden || fullOpts.refreshWhenBlurred || fullOpts.refreshWhenOffline) {
+      // One interval runs while the page is in any of the states. The check
+      // runs on every related event and once at the start, so polling begins
+      // right away when the page is already in one of them.
+      let interval: ReturnType<typeof setInterval> | undefined;
+      const update = (): void => {
+        const isActive = states.some((state) => state.isActive());
+        if (isActive && interval === undefined) {
+          interval = setInterval(onRevalidate, refreshInterval);
+        } else if (!isActive && interval !== undefined) {
+          clearInterval(interval);
+          interval = undefined;
+        }
+      };
+      for (const state of states) {
+        for (const event of state.events) {
+          state.target.addEventListener(event, update, false);
+        }
+      }
+      update();
+      cleanups.push(() => {
+        for (const state of states) {
+          for (const event of state.events) {
+            state.target.removeEventListener(event, update, false);
+          }
+        }
+        clearInterval(interval);
+      });
+    } else {
+      const interval = setInterval(onRevalidate, refreshInterval);
       cleanups.push(() => {
         clearInterval(interval);
       });
@@ -413,7 +362,7 @@ export default function createSWRStore<T, P extends any[] = []>(
   // no name, so two stores called with the same arguments do not share a
   // cache entry.
   const prefix = options.name ?? id;
-  defaults.key = (...args: P): string => `${prefix}:${JSON.stringify(args)}`;
+  defaults.key = (...args: P): string => `${prefix}:${serializeKey(args)}`;
 
   const fullOpts: SWRFullOptions<T, P> = {
     ...options,

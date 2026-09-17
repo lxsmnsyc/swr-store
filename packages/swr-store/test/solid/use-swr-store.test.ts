@@ -1,4 +1,6 @@
-import { createRoot, createSignal } from 'solid-js';
+import type { Resource } from 'solid-js';
+import { Suspense, createRoot, createSignal } from 'solid-js';
+import { createComponent, memo, render } from 'solid-js/web';
 import { describe, expect, it } from 'vitest';
 import { createSWRStore } from '../../src';
 import { useSWRStore, useSWRStoreSuspenseless } from '../../src/solid';
@@ -104,5 +106,38 @@ describe('useSWRStore', () => {
       expect(resource.error).toBe(error);
       dispose();
     });
+  });
+});
+
+describe('Solid Suspense', () => {
+  it('does not show the fallback again when the cache changes', async () => {
+    const key = uniqueKey('solid-no-fallback');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => 'value',
+    });
+    const container = document.createElement('div');
+
+    let resource!: Resource<string | undefined>;
+    const dispose = render(
+      () =>
+        createComponent(Suspense, {
+          fallback: 'FALLBACK',
+          get children() {
+            resource = useSWRStore(store, (): [] => []);
+            const text = memo(() => resource() ?? '', true);
+            return text();
+          },
+        }),
+      container,
+    );
+
+    await flush();
+    expect(container.textContent).toBe('value');
+
+    store.mutate([], { status: 'success', data: 'next' }, false);
+    expect(resource.loading).toBe(false);
+    expect(container.textContent).toBe('next');
+    dispose();
   });
 });

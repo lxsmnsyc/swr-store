@@ -28,6 +28,15 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - The `Mutation` and `MutationListener` types are now exported.
 - A read that writes to the cache, such as `get` starting a fetch, now notifies subscribers in a microtask. React no longer warns about updating a component while rendering a different one.
 - `mutate` now starts one fetch when several stores share the key, instead of one per store.
-- A suspended React or Preact component now gets the result it waited for, even when the entry has already expired. Before, `freshAge: 0` with `staleAge: 0` made it suspend forever.
 - The React hook now renders what the server rendered during hydration, so a filled client cache no longer causes a hydration mismatch.
-- The package is built with tsdown. ESM and CommonJS builds are still published, but the separate `development` builds are gone.
+- A key now has at most one running fetch. Stale reads share it, so a failing background fetch no longer starts another endless retry loop on every read, and a read with `initialData` no longer starts a second fetch.
+- Fetch results are now ordered against writes by write order instead of timestamps, so a `mutate` in the same millisecond as a fetch start is no longer overwritten.
+- Freshness now counts from when a fetch settles. Slow fetches are no longer stale or thrown away when they arrive.
+- The React and Preact hooks now only read the cache while rendering and revalidate once after mounting. A render retried after suspending gets the data it waited for, even when it has already expired.
+- The React and Preact hooks now compare cache keys instead of argument objects, and ignore later `initialData` changes. `initialData: []` or object arguments no longer loop forever.
+- The React and Preact hooks accept `hydrate`, and `suspense` can be a `boolean` variable.
+- Solid's `useSWRStore` no longer shows the `Suspense` fallback again when the cache changes to settled data.
+- Several polling states now share one interval, and a `refreshInterval` of `0` or less does not poll.
+- The default key now sorts object keys and tells apart `undefined`, `null`, `BigInt`, `Map` and `Set` values.
+- A listener is no longer called twice for the same entry when a read and a write happen before the next microtask.
+- The package is built with tsdown and targets ES2020. ESM and CommonJS builds are still published, but the separate `development` builds are gone.

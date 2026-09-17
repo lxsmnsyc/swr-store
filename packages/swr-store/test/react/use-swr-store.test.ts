@@ -1,5 +1,5 @@
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { Suspense, createElement, useState } from 'react';
+import { StrictMode, Suspense, createElement, useState } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { createSWRStore } from '../../src';
@@ -239,5 +239,132 @@ describe('SWRStoreRoot', () => {
   it('renders its children', () => {
     render(createElement(SWRStoreRoot, null, 'child'));
     expect(screen.getByText('child')).toBeDefined();
+  });
+});
+
+describe('React stability', () => {
+  it('does not loop when initialData is a new object every render', () => {
+    const key = uniqueKey('react-initial-object');
+    const store = createSWRStore<string[]>({
+      key: () => key,
+      get: async () => ['value'],
+    });
+
+    const { result, rerender } = renderHook(() => useSWRStore(store, [], { initialData: [] }));
+    rerender();
+
+    expect(result.current).toEqual({ status: 'success', data: [] });
+  });
+
+  it('does not loop when an argument is a new object every render', () => {
+    const store = createSWRStore<string, [{ id: string }]>({
+      name: uniqueKey('react-object-args'),
+      get: async ({ id }) => id,
+    });
+
+    const { result, rerender } = renderHook(() => useSWRStore(store, [{ id: '1' }]));
+    rerender();
+
+    expect(result.current.status).toBe('pending');
+  });
+
+  it('accepts a suspense flag that is only known at runtime', async () => {
+    const key = uniqueKey('react-dynamic-suspense');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => 'value',
+    });
+    await store.get([]).data;
+    const suspense = Math.random() > 2;
+
+    const { result } = renderHook(() => useSWRStore(store, [], { suspense }));
+
+    expect(result.current).toEqual({ status: 'success', data: 'value' });
+  });
+
+  it('writes hydrated initial data to the cache', () => {
+    const key = uniqueKey('react-hydrate');
+    const get = vi.fn(async () => 'fetched');
+    const store = createSWRStore<string>({ key: () => key, get });
+
+    renderHook(() => useSWRStore(store, [], { initialData: 'server', hydrate: true }));
+
+    expect(store.get([], { shouldRevalidate: false })).toEqual({
+      status: 'success',
+      data: 'server',
+    });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('revalidates after a suspended component unmounts before its fetch settles', async () => {
+    const key = uniqueKey('react-unmount');
+    const deferred = createDeferred<string>();
+    const get = vi.fn(async () => deferred.promise);
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: 10,
+      staleAge: 10,
+    });
+
+    function Data() {
+      return useSWRStore(store, [], { suspense: true });
+    }
+
+    const view = render(createElement(Suspense, { fallback: 'loading' }, createElement(Data)));
+    view.unmount();
+    deferred.resolve('value');
+    await deferred.promise;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+
+    expect(store.get([]).status).toBe('pending');
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('React StrictMode', () => {
+  it('finishes suspense when every result expires right away', async () => {
+    const key = uniqueKey('react-strict-zero-age');
+    const get = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 5);
+      });
+      return 'ready';
+    });
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: 0,
+      staleAge: 0,
+    });
+
+    function Data(): string {
+      return useSWRStore(store, [], { suspense: true });
+    }
+
+    const view = render(
+      createElement(
+        StrictMode,
+        null,
+        createElement(Suspense, { fallback: 'loading' }, createElement(Data)),
+      ),
+    );
+
+    await waitFor(() => {
+      expect(view.container.textContent).toBe('ready');
+    });
+    // Updates outside `act` are not applied in tests, so the wait happens
+    // inside it.
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    });
+
+    // One fetch to show the data, and one revalidation after mounting.
+    expect(view.container.textContent).toBe('ready');
+    expect(get.mock.calls.length).toBeLessThanOrEqual(2);
   });
 });

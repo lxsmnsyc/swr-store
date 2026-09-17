@@ -137,14 +137,19 @@ export default class LRUMap<K, V> implements Map<K, V> {
     }
   }
 
-  // Iterates from the most to the least recently used entry.
+  // Iterates from the most to the least recently used entry. The order is
+  // taken when iteration starts. Entries deleted before they are reached are
+  // skipped, and entries added or moved while iterating are not visited
+  // again, so a callback that reads entries cannot loop forever.
   *entries(): MapIterator<[K, V]> {
-    let node = this.head;
-    while (node) {
-      // Read the next node first, so the callback can delete the current one.
-      const { next } = node;
-      yield [node.key, node.value];
-      node = next;
+    const order: LRUNode<K, V>[] = [];
+    for (let node = this.head; node; node = node.next) {
+      order.push(node);
+    }
+    for (const node of order) {
+      if (this.nodes.get(node.key) === node) {
+        yield [node.key, node.value];
+      }
     }
   }
 

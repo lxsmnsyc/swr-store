@@ -3,7 +3,7 @@ import {
   createReactiveCache,
   getReactiveCacheListenerSize,
   getReactiveCacheValue,
-  notifyReactiveCache,
+  scheduleReactiveCacheNotify,
   setReactiveCacheValue,
   subscribeReactiveCache,
 } from './reactive-cache';
@@ -36,35 +36,35 @@ export function subscribeMutation<T>(key: string, listener: MutationListener<T>)
   return subscribeReactiveCache(MUTATION_CACHE, key, listener);
 }
 
-export function setMutation<T>(key: string, value: Mutation<T>, notify = true): void {
-  setReactiveCacheValue(MUTATION_CACHE, key, value, notify);
+let lastVersion = 0;
+const VERSIONS = new WeakMap<Mutation<unknown>, number>();
+
+// Every write gets a version that is higher than any version before it. A
+// fetch compares versions to tell whether the entry was written after it
+// started. Timestamps cannot do that, because two writes can share the same
+// millisecond.
+export function nextVersion(): number {
+  lastVersion += 1;
+  return lastVersion;
 }
 
-const scheduled = new Set<string>();
+export function getVersion(mutation: Mutation<unknown>): number {
+  return VERSIONS.get(mutation) ?? 0;
+}
+
+export function setMutation<T>(key: string, value: Mutation<T>, notify = true): void {
+  VERSIONS.set(value, nextVersion());
+  setReactiveCacheValue(MUTATION_CACHE, key, value, notify);
+}
 
 // Writes now and notifies subscribers in a microtask. Reads can write to the
 // cache while a UI library is rendering, and notifying right away would make
 // other components update in the middle of that render.
 export function setMutationDeferred<T>(key: string, value: Mutation<T>): void {
-  setMutation(key, value, false);
-  if (scheduled.has(key)) {
-    return;
-  }
-  scheduled.add(key);
-  queueMicrotask(() => {
-    scheduled.delete(key);
-    notifyReactiveCache(MUTATION_CACHE, key);
-  });
+  VERSIONS.set(value, nextVersion());
+  setReactiveCacheValue(MUTATION_CACHE, key, value, false);
+  scheduleReactiveCacheNotify(MUTATION_CACHE, key);
 }
-
-// Promises that a suspended component is waiting on.
-export const AWAITED_PROMISES = new WeakSet<Promise<unknown>>();
-
-// Entries written by a fetch that a suspended component waited on, and that
-// no read has returned yet. The next read returns them without revalidating,
-// so the component gets the data it waited for even when the entry is already
-// expired.
-export const UNREAD_MUTATIONS = new WeakSet<Mutation<unknown>>();
 
 export function getMutation<T>(key: string): Mutation<T> | undefined {
   return getReactiveCacheValue(MUTATION_CACHE, key);

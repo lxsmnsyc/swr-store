@@ -141,3 +141,85 @@ describe('SWRStoreRoot', () => {
     expect(screen.getByText('child')).toBeDefined();
   });
 });
+
+describe('Preact stability', () => {
+  it('does not loop when initialData is a new object every render', () => {
+    const key = uniqueKey('preact-initial-object');
+    const store = createSWRStore<string[]>({
+      key: () => key,
+      get: async () => ['value'],
+    });
+
+    const { result, rerender } = renderHook(() => useSWRStore(store, [], { initialData: [] }));
+    rerender();
+
+    expect(result.current).toEqual({ status: 'success', data: [] });
+  });
+
+  it('does not loop when an argument is a new object every render', () => {
+    const store = createSWRStore<string, [{ id: string }]>({
+      name: uniqueKey('preact-object-args'),
+      get: async ({ id }) => id,
+    });
+
+    const { result, rerender } = renderHook(() => useSWRStore(store, [{ id: '1' }]));
+    rerender();
+
+    expect(result.current.status).toBe('pending');
+  });
+
+  it('accepts a suspense flag that is only known at runtime', async () => {
+    const key = uniqueKey('preact-dynamic-suspense');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => 'value',
+    });
+    await store.get([]).data;
+    const suspense = Math.random() > 2;
+
+    const { result } = renderHook(() => useSWRStore(store, [], { suspense }));
+
+    expect(result.current).toEqual({ status: 'success', data: 'value' });
+  });
+
+  it('writes hydrated initial data to the cache', () => {
+    const key = uniqueKey('preact-hydrate');
+    const get = vi.fn(async () => 'fetched');
+    const store = createSWRStore<string>({ key: () => key, get });
+
+    renderHook(() => useSWRStore(store, [], { initialData: 'server', hydrate: true }));
+
+    expect(store.get([], { shouldRevalidate: false })).toEqual({
+      status: 'success',
+      data: 'server',
+    });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('revalidates after a suspended component unmounts before its fetch settles', async () => {
+    const key = uniqueKey('preact-unmount');
+    const deferred = createDeferred<string>();
+    const get = vi.fn(async () => deferred.promise);
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: 10,
+      staleAge: 10,
+    });
+
+    function Data() {
+      return h('p', null, useSWRStore(store, [], { suspense: true }));
+    }
+
+    const view = render(h(Suspense, { fallback: 'loading' }, h(Data, null)));
+    view.unmount();
+    deferred.resolve('value');
+    await deferred.promise;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+
+    expect(store.get([]).status).toBe('pending');
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+});

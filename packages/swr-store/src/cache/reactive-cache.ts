@@ -11,6 +11,8 @@ export interface ReactiveCacheRef<T> {
 export interface ReactiveCache<T> {
   cache: LRUMap<string, ReactiveCacheRef<T>>;
   subscribers: Map<string, Set<ReactiveCacheListener<T>>>;
+  // Keys with a notification waiting for the next microtask.
+  scheduled: Set<string>;
 }
 
 export function createReactiveCache<T>(maxSize = DEFAULT_CACHE_SIZE): ReactiveCache<T> {
@@ -20,6 +22,7 @@ export function createReactiveCache<T>(maxSize = DEFAULT_CACHE_SIZE): ReactiveCa
     // is no longer in the cache.
     cache: new LRUMap(maxSize, (key) => !subscribers.has(key)),
     subscribers,
+    scheduled: new Set(),
   };
 }
 
@@ -76,25 +79,36 @@ export function setReactiveCacheValue<T>(
   }
 
   if (notify) {
-    const subscribers = cache.subscribers.get(key);
-    if (subscribers) {
-      // Copy first, so a listener that unsubscribes does not skip another.
-      for (const listener of Array.from(subscribers)) {
-        listener(value);
-      }
-    }
+    notifyReactiveCache(cache, key);
   }
 }
 
-// Calls the listeners of `key` with its current value.
-export function notifyReactiveCache<T>(cache: ReactiveCache<T>, key: string): void {
+// Calls the listeners of `key` with its current value. This also covers any
+// notification scheduled for the key, which is dropped.
+function notifyReactiveCache<T>(cache: ReactiveCache<T>, key: string): void {
+  cache.scheduled.delete(key);
   const ref = cache.cache.peek(key);
   const subscribers = cache.subscribers.get(key);
   if (ref && subscribers) {
+    // Copy first, so a listener that unsubscribes does not skip another.
     for (const listener of Array.from(subscribers)) {
       listener(ref.value);
     }
   }
+}
+
+// Notifies the listeners of `key` in a microtask. Several calls before then,
+// or a direct notification in between, lead to a single notification.
+export function scheduleReactiveCacheNotify<T>(cache: ReactiveCache<T>, key: string): void {
+  if (cache.scheduled.has(key)) {
+    return;
+  }
+  cache.scheduled.add(key);
+  queueMicrotask(() => {
+    if (cache.scheduled.has(key)) {
+      notifyReactiveCache(cache, key);
+    }
+  });
 }
 
 export function getReactiveCacheListenerSize<T>(cache: ReactiveCache<T>, key: string): number {

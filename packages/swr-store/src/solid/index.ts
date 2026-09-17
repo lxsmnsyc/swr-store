@@ -1,7 +1,7 @@
 import type { Resource } from 'solid-js';
 import { createEffect, createResource, createSignal, onCleanup } from 'solid-js';
 import type { MutationResult } from '../cache/mutation-cache';
-import { isSameArgs, isSameResult } from '../bindings/external-store';
+import { isSameResult } from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
 import type { SWRStore } from '../types';
 
@@ -27,9 +27,10 @@ export function useSWRStoreSuspenseless<T, P extends any[] = []>(
     equals: isSameResult,
   });
 
-  createEffect((previousArgs: P | undefined) => {
+  createEffect((previousKey: string | undefined) => {
     const currentArgs = args();
-    if (previousArgs && !isSameArgs(previousArgs, currentArgs)) {
+    const key = store.getKey(currentArgs);
+    if (previousKey !== undefined && previousKey !== key) {
       setResult(() => read(currentArgs, options.shouldRevalidate));
     }
     onCleanup(
@@ -40,10 +41,22 @@ export function useSWRStoreSuspenseless<T, P extends any[] = []>(
     // The cache may have changed between the first read and the
     // subscription, for example when a fetch settled in between.
     setResult(() => read(currentArgs, false));
-    return currentArgs;
+    return key;
   }, undefined);
 
   return result;
+}
+
+// Returns settled data as is, so Solid applies it right away. Only a pending
+// result gives the resource a promise, which is when it should show as
+// loading.
+// oxlint-disable-next-line typescript/promise-function-async
+function toResourceValue<T>(result: MutationResult<T>): T | Promise<T> {
+  if (result.status === 'failure') {
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+    return Promise.reject(result.data);
+  }
+  return result.data;
 }
 
 export function useSWRStore<T, P extends any[] = []>(
@@ -65,32 +78,20 @@ export function useSWRStore<T, P extends any[] = []>(
   if (!IS_CLIENT) {
     const [serverResource] = createResource(
       args,
-      async (currentArgs): Promise<T> => {
-        const result = store.get(currentArgs, {
-          shouldRevalidate: options.shouldRevalidate,
-          initialData: options.initialData,
-          hydrate: options.hydrate,
-        });
-        if (result.status === 'failure') {
-          throw result.data;
-        }
-        return result.data;
-      },
+      (currentArgs): T | Promise<T> =>
+        toResourceValue(
+          store.get(currentArgs, {
+            shouldRevalidate: options.shouldRevalidate,
+            initialData: options.initialData,
+            hydrate: options.hydrate,
+          }),
+        ),
       resourceOptions,
     );
     return serverResource;
   }
 
   const suspenseless = useSWRStoreSuspenseless(store, args, options);
-  const [resource] = createResource(
-    suspenseless,
-    async (result): Promise<T> => {
-      if (result.status === 'failure') {
-        throw result.data;
-      }
-      return result.data;
-    },
-    resourceOptions,
-  );
+  const [resource] = createResource(suspenseless, toResourceValue, resourceOptions);
   return resource;
 }

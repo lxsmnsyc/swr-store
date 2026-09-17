@@ -1,16 +1,16 @@
 import type { ComponentChildren } from 'preact';
 import { useSyncExternalStore } from 'preact/compat';
-import { useDebugValue, useState } from 'preact/hooks';
+import { useDebugValue, useEffect, useState } from 'preact/hooks';
 import type { MutationResult } from '../cache/mutation-cache';
-import { AWAITED_PROMISES } from '../cache/mutation-cache';
 import type { ExternalStore } from '../bindings/external-store';
-import { SERVER_SUSPENSE_ERROR, createExternalStore, isSameArgs } from '../bindings/external-store';
+import { SERVER_SUSPENSE_ERROR, createExternalStore } from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
 import type { SWRStore } from '../types';
 
 interface BaseOptions<T> {
   initialData?: T;
   shouldRevalidate?: boolean;
+  hydrate?: boolean;
 }
 
 interface WithSuspenseOptions<T> extends BaseOptions<T> {
@@ -21,32 +21,15 @@ interface WithoutSuspenseOptions<T> extends BaseOptions<T> {
   suspense?: false;
 }
 
-export type UseSWRStoreOptions<T> = WithSuspenseOptions<T> | WithoutSuspenseOptions<T>;
+export interface UseSWRStoreOptions<T> extends BaseOptions<T> {
+  suspense?: boolean;
+}
 
 interface Source<T, P extends any[]> {
   store: SWRStore<T, P>;
-  args: P;
-  initialData: T | undefined;
+  key: string;
   shouldRevalidate: boolean | undefined;
   external: ExternalStore<T>;
-}
-
-function createSource<T, P extends any[]>(
-  store: SWRStore<T, P>,
-  args: P,
-  initialData: T | undefined,
-  shouldRevalidate: boolean | undefined,
-): Source<T, P> {
-  return {
-    store,
-    args,
-    initialData,
-    shouldRevalidate,
-    external: createExternalStore(store, args, {
-      initialData,
-      shouldRevalidate,
-    }),
-  };
 }
 
 export function useSWRStore<T, P extends any[] = []>(
@@ -62,26 +45,44 @@ export function useSWRStore<T, P extends any[] = []>(
 export function useSWRStore<T, P extends any[] = []>(
   store: SWRStore<T, P>,
   args: P,
+  options?: UseSWRStoreOptions<T>,
+): MutationResult<T> | T;
+export function useSWRStore<T, P extends any[] = []>(
+  store: SWRStore<T, P>,
+  args: P,
   options: UseSWRStoreOptions<T> = {},
 ): MutationResult<T> | T {
-  const { suspense, initialData, shouldRevalidate } = options;
+  const { suspense, initialData, shouldRevalidate, hydrate } = options;
 
-  const [source, setSource] = useState(() =>
-    createSource(store, args, initialData, shouldRevalidate),
-  );
+  // The source is rebuilt when the cache key changes, not when `args` or
+  // `initialData` are new objects with the same contents. Initial data only
+  // matters for the first read.
+  const key = store.getKey(args);
+  const createSource = (): Source<T, P> => ({
+    store,
+    key,
+    shouldRevalidate,
+    external: createExternalStore(store, args, { initialData, shouldRevalidate, hydrate }),
+  });
+
+  const [source, setSource] = useState(createSource);
 
   let current = source;
   if (
     current.store !== store ||
-    !Object.is(current.initialData, initialData) ||
-    current.shouldRevalidate !== shouldRevalidate ||
-    !isSameArgs(current.args, args)
+    current.key !== key ||
+    current.shouldRevalidate !== shouldRevalidate
   ) {
-    current = createSource(store, args, initialData, shouldRevalidate);
+    current = createSource();
     setSource(current);
   }
 
+  // Preact's `useSyncExternalStore` takes no server snapshot.
   const value = useSyncExternalStore(current.external.subscribe, current.external.read);
+
+  useEffect(() => {
+    current.external.revalidate();
+  }, [current]);
 
   useDebugValue(value);
 
@@ -92,14 +93,8 @@ export function useSWRStore<T, P extends any[] = []>(
     // The server has no cache, so the read after suspending would start a
     // new fetch and suspend again, forever. Fail instead, which makes the
     // nearest Suspense boundary render on the client.
-    if (value.status === 'pending') {
-      if (!IS_CLIENT) {
-        throw new Error(SERVER_SUSPENSE_ERROR);
-      }
-      // The next read returns what this fetch settles with, even when the
-      // entry has already expired by then. Otherwise the retry could start a
-      // new fetch and suspend again.
-      AWAITED_PROMISES.add(value.data);
+    if (value.status === 'pending' && !IS_CLIENT) {
+      throw new Error(SERVER_SUSPENSE_ERROR);
     }
     throw value.data;
   }
