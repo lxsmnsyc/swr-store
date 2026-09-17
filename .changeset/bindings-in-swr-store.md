@@ -1,5 +1,5 @@
 ---
-'swr-store': minor
+'swr-store': major
 ---
 
 The React, Preact and Solid bindings now ship inside `swr-store`.

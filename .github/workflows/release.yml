@@ -1,0 +1,54 @@
+name: Release
+
+# While changesets are pending on main, this keeps a "Version Packages" pull
+# request up to date. Merging that pull request leaves no changesets, and that
+# push publishes the new versions to npm.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  # Lets npm trusted publishing exchange a GitHub OIDC token for a
+  # short-lived publish token. No npm token secret is needed.
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      # pnpm 10 publishes through the npm CLI. Trusted publishing needs
+      # npm 11.5.1 or later, which ships with Node 24.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Version or publish
+        uses: changesets/action@v2
+        with:
+          version-script: pnpm run cs:ver
+          publish-script: pnpm run cs:pub
+          commit-message: 'chore: version packages'
+          pr-title: 'chore: version packages'
