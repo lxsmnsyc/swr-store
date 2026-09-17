@@ -862,3 +862,72 @@ describe('default key details', () => {
     expect(store.getKey([undefined])).not.toBe(store.getKey([{ $undefined: true }]));
   });
 });
+
+describe('user code errors', () => {
+  it('keeps notifying and unpins the key when a listener throws', async () => {
+    const reported: unknown[] = [];
+    vi.stubGlobal('reportError', (error: unknown) => {
+      reported.push(error);
+    });
+    setCacheSize(1);
+    try {
+      const prefix = uniqueKey('throwing-listener');
+      const store = createSWRStore<string, [string]>({
+        key: (id) => `${prefix}-${id}`,
+        get: async (id) => id,
+      });
+      const calls: string[] = [];
+      const unsubscribeThrowing = subscribe(store.getKey(['a']), () => {
+        throw new Error('listener failed');
+      });
+      const unsubscribeNext = subscribe(store.getKey(['a']), () => {
+        calls.push('next');
+      });
+
+      await store.get(['a']).data;
+      // Every notification reached the second listener, and every error from
+      // the first was reported instead of thrown.
+      expect(calls.length).toBeGreaterThan(0);
+      expect(reported).toHaveLength(calls.length);
+
+      unsubscribeThrowing();
+      unsubscribeNext();
+      // With no subscribers and no running fetch, `a` can be evicted.
+      await store.get(['b']).data;
+      store.mutate(['c'], { status: 'success', data: 'c' }, false);
+      expect(store.get(['a'], { shouldRevalidate: false }).status).toBe('pending');
+    } finally {
+      setCacheSize(1000);
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('default key limits', () => {
+  it('throws for functions, symbols and circular values', () => {
+    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    expect(() => store.getKey([() => 1])).toThrow(TypeError);
+    expect(() => store.getKey([Symbol('a')])).toThrow(TypeError);
+    expect(() => store.getKey([{ callback: () => 1 }])).toThrow(TypeError);
+    expect(() => store.getKey([circular])).toThrow(TypeError);
+  });
+
+  it('allows the same object in several places', () => {
+    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
+    const shared = { id: 1 };
+
+    expect(store.getKey([[shared, shared]])).toBe(store.getKey([[{ id: 1 }, { id: 1 }]]));
+  });
+
+  it('escapes tag-like fields of class instances', () => {
+    class Tagged {
+      $undefined = true;
+    }
+    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
+
+    expect(store.getKey([new Tagged()])).not.toBe(store.getKey([undefined]));
+  });
+});

@@ -1,4 +1,9 @@
-import type { MutationPending, MutationResult } from '../cache/mutation-cache';
+import type {
+  MutationFailure,
+  MutationPending,
+  MutationResult,
+  MutationSuccess,
+} from '../cache/mutation-cache';
 import { subscribe } from '../global';
 import { getServerRead } from '../server-read';
 import type { SWRStore } from '../types';
@@ -22,6 +27,9 @@ export interface ExternalStore<T> {
   retryFailure: () => MutationResult<T>;
   // A promise that settles when a pending result can be shown.
   wait: (pending: MutationPending<T>) => Promise<T>;
+  // Uses newer arguments for the same cache key, such as a new token. Call it
+  // after each render commits.
+  setArgs: (args: unknown[]) => void;
   // Revalidates the entry once. Call it after the component mounts.
   revalidate: () => void;
 }
@@ -85,6 +93,54 @@ export function waitForResult<T, P extends any[]>(
   return waiter;
 }
 
+const SETTLED = new WeakMap<object, Promise<unknown>>();
+
+// Returns a promise that React's `use` reads right away, without suspending.
+// React checks `status` and `value` or `reason` on the promise, which is
+// how it marks promises it has already seen settle. The promise is cached
+// per result, so every render passes the same one.
+// oxlint-disable-next-line typescript/promise-function-async
+export function toSettledPromise<T>(result: MutationSuccess<T> | MutationFailure): Promise<T> {
+  const existing = SETTLED.get(result);
+  if (existing) {
+    // Promises are stored by their own result, so the types match.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    return existing as Promise<T>;
+  }
+  let promise: Promise<T>;
+  if (result.status === 'success') {
+    promise = Object.assign(Promise.resolve(result.data), {
+      status: 'fulfilled',
+      value: result.data,
+    });
+  } else {
+    const reason: unknown = result.data;
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+    promise = Object.assign(Promise.reject<T>(reason), {
+      status: 'rejected',
+      reason,
+    });
+    promise.catch(() => undefined);
+  }
+  SETTLED.set(result, promise);
+  return promise;
+}
+
+export function isSameArgs<P extends unknown[]>(prev: P, next: P): boolean {
+  if (prev === next) {
+    return true;
+  }
+  if (prev.length !== next.length) {
+    return false;
+  }
+  for (let i = 0; i < prev.length; i += 1) {
+    if (!Object.is(prev[i], next[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function isSameResult<T>(a: MutationResult<T>, b: MutationResult<T>): boolean {
   return a.status === b.status && Object.is(a.data, b.data);
 }
@@ -105,8 +161,13 @@ export function createExternalStore<T, P extends any[] = []>(
   args: P,
   options: ExternalStoreOptions<T>,
 ): ExternalStore<T> {
+  // The key stays the same, but arguments the key leaves out, such as a
+  // token, can change. Reads and the subscription use the latest ones.
+  let latestArgs = args;
+  let resubscribe: (() => void) | undefined;
+
   const read = (shouldRevalidate: boolean): MutationResult<T> =>
-    store.get(args, {
+    store.get(latestArgs, {
       shouldRevalidate,
       initialData: options.initialData,
       hydrate: options.hydrate,
@@ -139,21 +200,40 @@ export function createExternalStore<T, P extends any[] = []>(
     readServer: (): MutationResult<T> => {
       // The snapshot has to stay the same object between calls.
       serverResult ??=
-        getServerRead(store)?.(args, { initialData: options.initialData }) ?? current;
+        getServerRead(store)?.(latestArgs, { initialData: options.initialData }) ?? current;
       return serverResult;
     },
     subscribe: (notify): (() => void) => {
-      const unsubscribe = store.subscribe(args, () => {
+      const listener = (): void => {
         if (refresh()) {
           notify();
         }
-      });
+      };
+      let unsubscribe = store.subscribe(latestArgs, listener);
+      // Subscribing with new arguments before leaving the old subscription
+      // keeps the store's polling and event listeners running.
+      resubscribe = (): void => {
+        const next = store.subscribe(latestArgs, listener);
+        unsubscribe();
+        unsubscribe = next;
+      };
       // The cache may have changed between the first read and the
       // subscription, for example when a fetch settled in between.
-      if (refresh()) {
-        notify();
+      listener();
+      return () => {
+        resubscribe = undefined;
+        unsubscribe();
+      };
+    },
+    setArgs: (next): void => {
+      // The hook passes the arguments of the render, which match `P`.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      const nextArgs = next as P;
+      if (isSameArgs(latestArgs, nextArgs)) {
+        return;
       }
-      return unsubscribe;
+      latestArgs = nextArgs;
+      resubscribe?.();
     },
     retryFailure: (): MutationResult<T> => {
       const next = read(true);
@@ -163,7 +243,7 @@ export function createExternalStore<T, P extends any[] = []>(
       return current;
     },
     // oxlint-disable-next-line typescript/promise-function-async
-    wait: (pending): Promise<T> => waitForResult(store, args, pending, () => read(false)),
+    wait: (pending): Promise<T> => waitForResult(store, latestArgs, pending, () => read(false)),
     revalidate: (): void => {
       // Only once. React runs effects again when suspended content comes
       // back, and in StrictMode on every mount. Revalidating each time would

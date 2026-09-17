@@ -1,4 +1,5 @@
 import IS_CLIENT from '../is-client';
+import reportUserError from '../report-error';
 import LRUMap from './lru-map';
 
 export const DEFAULT_CACHE_SIZE = 1000;
@@ -94,10 +95,15 @@ function notifyReactiveCache<T>(cache: ReactiveCache<T>, key: string): void {
   const subscribers = cache.subscribers.get(key);
   if (ref && subscribers) {
     // Copy first, so a listener that unsubscribes does not skip another.
-    // A listener removed by an earlier one in this loop is not called.
+    // A listener removed by an earlier one in this loop is not called, and a
+    // listener that throws does not stop the rest.
     for (const listener of Array.from(subscribers)) {
       if (subscribers.has(listener)) {
-        listener(ref.value);
+        try {
+          listener(ref.value);
+        } catch (error) {
+          reportUserError(error);
+        }
       }
     }
   }

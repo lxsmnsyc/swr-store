@@ -8,7 +8,7 @@ import {
   untrack,
 } from 'solid-js';
 import type { MutationResult } from '../cache/mutation-cache';
-import { isSameResult, waitForResult } from '../bindings/external-store';
+import { isSameArgs, isSameResult, waitForResult } from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
 import createLazyPromise from '../lazy-promise';
 import type { SWRStore } from '../types';
@@ -23,6 +23,8 @@ interface SuspenselessState<T> {
   result: () => MutationResult<T>;
   // Writes data from server rendering to the cache and shows it.
   hydrate: (data: T) => void;
+  // Starts a deferred first read, when hydration brought no data.
+  startRead: () => void;
 }
 
 // oxlint-disable-next-line typescript/promise-function-async
@@ -72,32 +74,55 @@ function createSuspenseless<T, P extends any[]>(
     { equals: isSameResult },
   );
 
-  createEffect((previousKey: string | undefined) => {
+  // The active subscription. Arguments can change without changing the
+  // key, for example a token the key leaves out. Then the new subscription
+  // starts before the old one ends, so the store keeps its polling and event
+  // listeners running.
+  interface Subscription {
+    key: string;
+    args: P;
+    unsubscribe: () => void;
+  }
+  let subscription: Subscription | undefined;
+
+  createEffect(() => {
     const currentArgs = args();
     const key = untrack(() => store.getKey(currentArgs));
-    let active = true;
-    if (previousKey !== undefined && previousKey !== key) {
-      setResult(() => read(currentArgs, options.shouldRevalidate));
+    const previous = subscription;
+    if (previous?.key === key && isSameArgs(previous.args, currentArgs)) {
+      return;
     }
-    const unsubscribe = store.subscribe(currentArgs, () => {
-      // A listener can still run once after its effect was cleaned up, in the
-      // same notification. It must not write data for the old key.
-      if (active) {
-        setResult(() => read(currentArgs, false));
+
+    const entry: Subscription = { key, args: currentArgs, unsubscribe: () => undefined };
+    entry.unsubscribe = untrack(() =>
+      store.subscribe(currentArgs, () => {
+        // A listener can still run once after it was replaced, in the same
+        // notification. It must not write data for an old key.
+        if (subscription === entry) {
+          setResult(() => read(entry.args, false));
+        }
+      }),
+    );
+    subscription = entry;
+    previous?.unsubscribe();
+
+    if (previous) {
+      if (previous.key !== key) {
+        setResult(() => read(currentArgs, options.shouldRevalidate));
       }
-    });
-    onCleanup(() => {
-      active = false;
-      unsubscribe();
-    });
-    // The cache may have changed between the first read and the
-    // subscription, for example when a fetch settled in between. A deferred
-    // first read is left alone, since reading now would start a fetch.
-    if (!firstReadDeferred) {
+    } else if (!firstReadDeferred) {
+      // The cache may have changed between the first read and the
+      // subscription, for example when a fetch settled in between. A
+      // deferred first read is left alone, since reading now would start a
+      // fetch.
       setResult(() => read(currentArgs, false));
     }
-    return key;
-  }, undefined);
+  });
+
+  onCleanup(() => {
+    subscription?.unsubscribe();
+    subscription = undefined;
+  });
 
   return {
     result,
@@ -108,6 +133,13 @@ function createSuspenseless<T, P extends any[]>(
         store.get(currentArgs, { initialData: data, hydrate: true, shouldRevalidate: false }),
       );
       setResult(() => read(currentArgs, false));
+    },
+    startRead: () => {
+      if (!firstReadDeferred) {
+        return;
+      }
+      firstReadDeferred = false;
+      setResult(() => read(untrack(args), options.shouldRevalidate));
     },
   };
 }
@@ -191,8 +223,13 @@ export function useSWRStore<T, P extends any[] = []>(
       ...resourceOptions,
       // Data the server rendered goes into the cache, so the client does
       // not fetch it again.
+      // Initial data given without `hydrate` stays a placeholder, as it does
+      // outside hydration. Without data, such as when the server failed, the
+      // client fetches.
       onHydrated: (_key, info) => {
-        if (info.value !== undefined) {
+        if (info.value === undefined) {
+          suspenseless.startRead();
+        } else if (!hasInitialData || options.hydrate) {
           suspenseless.hydrate(info.value);
         }
       },

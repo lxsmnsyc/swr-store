@@ -81,6 +81,10 @@ export function useSWRStore<T, P extends any[] = []>(
   const value = useSyncExternalStore(current.external.subscribe, current.external.read);
 
   useEffect(() => {
+    current.external.setArgs(args);
+  });
+
+  useEffect(() => {
     current.external.revalidate();
   }, [current]);
 

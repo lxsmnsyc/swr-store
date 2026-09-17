@@ -241,3 +241,129 @@ describe('Solid hydration', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('Solid hydration details', () => {
+  function stubServerData(value: () => unknown): void {
+    const resources = new Proxy<Record<string, unknown>>(
+      {},
+      {
+        has: () => true,
+        get: (_target, name) => (typeof name === 'string' ? value() : undefined),
+      },
+    );
+    vi.stubGlobal('_$HY', { r: resources, events: [], completed: new WeakSet() });
+  }
+
+  it('keeps initial data a placeholder when hydrating without hydrate', async () => {
+    const key = uniqueKey('solid-hydrate-initial');
+    const get = vi.fn(async () => 'client');
+    const store = createSWRStore<string>({ key: () => key, get });
+    stubServerData(() => 'initial');
+
+    const container = document.createElement('div');
+    container.textContent = 'initial';
+    const dispose = hydrate(() => {
+      useSWRStore(store, (): [] => [], { initialData: 'initial' });
+      return 'initial';
+    }, container);
+    await flush();
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(store.get([], { shouldRevalidate: false })).toEqual({
+      status: 'success',
+      data: 'client',
+    });
+    dispose();
+    vi.unstubAllGlobals();
+  });
+
+  it('fetches on the client when the server failed', async () => {
+    const key = uniqueKey('solid-hydrate-failed');
+    const get = vi.fn(async () => 'client');
+    const store = createSWRStore<string>({ key: () => key, get });
+    // oxlint-disable-next-line typescript/promise-function-async
+    stubServerData(() => {
+      const failed = Promise.reject(new Error('server failed'));
+      failed.catch(() => undefined);
+      return failed;
+    });
+
+    const container = document.createElement('div');
+    let resource!: Resource<string | undefined>;
+    const dispose = hydrate(() => {
+      resource = useSWRStore(store, (): [] => []);
+      return '';
+    }, container);
+    await flush();
+    await flush();
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(resource.state).toBe('ready');
+    expect(resource()).toBe('client');
+    dispose();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('Solid subscriptions', () => {
+  it('keeps polling when arguments change but the key does not', async () => {
+    vi.useFakeTimers();
+    try {
+      const key = uniqueKey('solid-args-polling');
+      const get = vi.fn(async (token: string) => token);
+      const store = createSWRStore<string, [string]>({
+        key: () => key,
+        get,
+        freshAge: 0,
+        staleAge: 0,
+        refreshInterval: 1000,
+      });
+      store.mutate(['x'], { status: 'success', data: 'start' }, false);
+
+      await createRoot(async (dispose) => {
+        const [token, setToken] = createSignal('t0');
+        useSWRStoreSuspenseless(store, (): [string] => [token()]);
+        get.mockClear();
+
+        for (let i = 1; i <= 4; i += 1) {
+          // oxlint-disable-next-line no-await-in-loop
+          await vi.advanceTimersByTimeAsync(400);
+          setToken(`t${i}`);
+        }
+        await vi.advanceTimersByTimeAsync(400);
+
+        expect(get).toHaveBeenCalled();
+        expect(get).toHaveBeenLastCalledWith('t4');
+        dispose();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not resubscribe when a signal read by the key changes', async () => {
+    const [version, setVersion] = createSignal(0);
+    const keyCalls = vi.fn();
+    const prefix = uniqueKey('solid-tracked-key');
+    const store = createSWRStore<string>({
+      key: () => {
+        keyCalls();
+        version();
+        return prefix;
+      },
+      get: async () => 'value',
+    });
+
+    await createRoot(async (dispose) => {
+      useSWRStoreSuspenseless(store, (): [] => []);
+      await flush();
+      const before = keyCalls.mock.calls.length;
+
+      setVersion(1);
+      await flush();
+
+      expect(keyCalls.mock.calls.length).toBe(before);
+      dispose();
+    });
+  });
+});

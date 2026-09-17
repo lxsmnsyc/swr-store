@@ -13,6 +13,7 @@ import getDefaultConfig, { serializeKey } from './default-config';
 import { mutate, subscribe, trigger } from './global';
 import IS_CLIENT, { HAS_DOCUMENT, HAS_WINDOW_EVENTS } from './is-client';
 import createLazyPromise from './lazy-promise';
+import reportUserError from './report-error';
 import type { Retry } from './retry';
 import retry from './retry';
 import { setServerRead } from './server-read';
@@ -183,10 +184,16 @@ function revalidate<T, P extends any[] = []>(
     if (fetches.get(generatedKey) === fetch) {
       fetches.delete(generatedKey);
     }
-    if (getLastWriteVersion(generatedKey) <= version) {
-      setMutation(generatedKey, write(getMutation<T>(generatedKey)));
+    try {
+      if (getLastWriteVersion(generatedKey) <= version) {
+        setMutation(generatedKey, write(getMutation<T>(generatedKey)));
+      }
+    } catch (error) {
+      // A throwing `compare` must not keep the key pinned forever.
+      reportUserError(error);
+    } finally {
+      unpinKey(generatedKey);
     }
-    unpinKey(generatedKey);
   };
 
   pendingData.then(

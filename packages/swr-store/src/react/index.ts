@@ -2,7 +2,11 @@ import type { ReactNode } from 'react';
 import * as React from 'react';
 import type { MutationResult } from '../cache/mutation-cache';
 import type { ExternalStore } from '../bindings/external-store';
-import { SERVER_SUSPENSE_ERROR, createExternalStore } from '../bindings/external-store';
+import {
+  SERVER_SUSPENSE_ERROR,
+  createExternalStore,
+  toSettledPromise,
+} from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
 import type { SWRStore } from '../types';
 
@@ -89,6 +93,10 @@ export function useSWRStore<T, P extends any[] = []>(
   );
 
   React.useEffect(() => {
+    current.external.setArgs(args);
+  });
+
+  React.useEffect(() => {
     current.external.revalidate();
   }, [current]);
 
@@ -99,25 +107,28 @@ export function useSWRStore<T, P extends any[] = []>(
     // while it throws, so the revalidation after mounting would never run,
     // and resetting an error boundary would show the same error forever.
     const shown = value.status === 'failure' ? current.external.retryFailure() : value;
+    // The server has no cache, so the read after suspending would start a
+    // new fetch and suspend again, forever. Fail instead, which makes the
+    // nearest Suspense boundary render on the client.
+    if (shown.status === 'pending' && !IS_CLIENT) {
+      throw new Error(SERVER_SUSPENSE_ERROR);
+    }
+    if (use) {
+      // React expects a component that suspended with `use` to call it again
+      // when it finishes, so settled results go through `use` too.
+      return use(
+        shown.status === 'pending' ? current.external.wait(shown) : toSettledPromise(shown),
+      );
+    }
     if (shown.status === 'success') {
       return shown.data;
     }
     if (shown.status === 'failure') {
       throw shown.data;
     }
-    // The server has no cache, so the read after suspending would start a
-    // new fetch and suspend again, forever. Fail instead, which makes the
-    // nearest Suspense boundary render on the client.
-    if (!IS_CLIENT) {
-      throw new Error(SERVER_SUSPENSE_ERROR);
-    }
-    const waiter = current.external.wait(shown);
-    if (use) {
-      return use(waiter);
-    }
     // React 18 suspends when the promise to wait on is thrown.
     // oxlint-disable-next-line typescript/only-throw-error
-    throw waiter;
+    throw current.external.wait(shown);
   }
   return value;
 }

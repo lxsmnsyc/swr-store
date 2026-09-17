@@ -77,15 +77,15 @@ In the browser, every store writes to one global cache. The `key` option turns t
 
 - By default the key is the store `name` followed by the serialized arguments. Without a `name`, the store's id is used instead, and two stores never share an entry through their default keys. Names and ids are tagged differently, so a name never matches an id.
 - The default serialization is JSON with a few changes:
-  - Object keys are sorted, so `{ a, b }` and `{ b, a }` give the same key. This includes objects without a prototype.
+  - Object keys are sorted, so `{ a, b }` and `{ b, a }` give the same key. This includes objects without a prototype. Class instances are written by their own fields, like plain objects.
   - `undefined`, `NaN`, `Infinity`, `BigInt`, `Date`, `Map` and `Set` values are written in a tagged form, so they do not collide with `null`, strings or empty objects.
   - Object keys that start with `$` get an extra `$`, so a plain object never matches a tag.
-  - Circular values still throw.
+  - Functions, symbols and circular values throw a `TypeError`. Pass a custom `key` for arguments like these. The same object can still appear in several places.
 - Stores with a custom `key` share an entry when they produce the same key.
 - The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
-- The cache keeps up to 1000 entries. When it is full, the least recently used entry is removed. Entries with subscribers or a running fetch are kept, and so is the entry written last. Change the limit with [`setCacheSize`](#setcachesizesize).
+- The cache keeps up to 1000 entries. When it is full, the least recently used entry is removed. Entries with subscribers or a running fetch are kept, and so is the entry used last. Change the limit with [`setCacheSize`](#setcachesizesize).
 
-The store id comes from a counter, so it changes every time the store is created. Create stores once at module level. When a store has to be created inside a function or component, set `name` so every instance uses the same entries.
+The store id comes from a counter, so it changes every time the store is created. Create stores once at module level. When a store has to be created inside a function, set `name` so every instance uses the same entries. Avoid creating a store during render: the hooks treat a new store object as a new source and subscribe again on every render.
 
 ```ts
 function createUserStore() {
@@ -289,6 +289,7 @@ Returns the cache key for `args`. Pass it to the global `trigger`, `mutate` and 
 Calls `listener` every time the cache entry for `args` is written. Returns a function that unsubscribes.
 
 - Writes from fetch results and `mutate` notify right away.
+- A listener that throws does not stop the others. Its error is passed to `reportError` where available, or thrown from a microtask.
 - Writes made by a read, such as `get` starting a fetch, notify in a microtask. A read can happen while a UI library renders, and notifying right away would update other components in the middle of that render.
 - A write that notifies right away also covers a notification still waiting for its microtask, so a listener is not called twice with the same entry.
 
@@ -315,7 +316,7 @@ userStore.mutate(['123'], {
 });
 ```
 
-- When both the cached and new results are successes and `compare` says they are equal, the entry keeps its value. Its timestamp is reset and subscribers are not notified.
+- When both the cached and new results are successes and `compare` says they are equal, the entry keeps its value and its timestamp is reset. Subscribers are only notified when this ends a revalidation, so `isValidating` goes back to `false`.
 - `compare` defaults to the store `compare` option.
 - With `shouldRevalidate: true`, subscribed stores fetch again after the write, even when the entry is fresh. The fetched data then replaces the written data. Pass `false` to keep the written data.
 - When several stores share the key, only one fetch starts.
@@ -332,7 +333,7 @@ The same as `store.mutate`, for a cache key.
 
 Sets how many entries the client cache keeps. It must be a positive integer. The default is `1000`. When the cache holds more entries, the least recently used ones are removed right away.
 
-- Entries with subscribers or a running fetch are never removed, and neither is the entry written last. The cache can grow past the limit while more entries than that are kept.
+- Entries with subscribers or a running fetch are never removed, and neither is the entry used last. The cache can grow past the limit while more entries than that are kept.
 - A removed entry is fetched again the next time it is read.
 
 ### `subscribe(key, listener)`
@@ -408,14 +409,14 @@ For Preact, import from `swr-store/preact` and take `Suspense` from `preact/comp
 - On React 19, the hook suspends with `use`. React 18 has no `use`, so there the hook throws the promise to wait on, which React 18 also supports. Preact always throws the promise.
 - A suspended component waits for its fetch or for the next write to its cache entry, whichever comes first. A `mutate` ends the suspense even when the fetch is still running.
 - With `suspense`, a cached failure is thrown while it is fresh. After that, rendering fetches again and suspends. Resetting an error boundary therefore retries once the failure is older than `freshAge`.
-- The hook compares cache keys, so passing new `args` objects with the same contents each render does not refetch. `initialData` and `hydrate` only apply to the first read for a key, so a new `initialData` object each render is fine.
+- The hook compares cache keys, so passing new `args` objects with the same contents each render does not refetch. When `args` change but the key does not, such as a new token the key leaves out, later fetches and revalidations use the newest `args`. `initialData` and `hydrate` only apply to the first read for a key, so a new `initialData` object each render is fine.
 - `suspense` can be a `boolean` variable. The return type is then `T | MutationResult<T>`.
 - During hydration, the React hook first renders what the server rendered, which is `initialData` or the pending result. It then updates to the cached result. This keeps the first client render matching the server HTML.
 - `SWRStoreRoot` is deprecated. The hook does not need it, and it only renders its children.
 
 ### Solid
 
-`args` is a function, so the hooks follow reactive arguments.
+`args` is a function, so the hooks follow reactive arguments. When the arguments change but the key does not, the hooks keep their subscription and use the newest arguments. Signals read by the store's `get` or `key` are not tracked.
 
 ```tsx
 import { Suspense } from 'solid-js';
@@ -454,7 +455,7 @@ export default function App() {
 ```
 
 - `useSWRStore(store, args, options?)` returns a `Resource<T | undefined>`. It suspends while pending and holds the error on failure. Like the React hook, a `mutate` ends the suspense even when the fetch is still running.
-- During hydration, `useSWRStore` uses the data from server rendering and writes it to the cache, instead of fetching it again.
+- During hydration, `useSWRStore` uses the data from server rendering and writes it to the cache, instead of fetching it again. With `initialData` and no `hydrate`, the initial data stays a placeholder and the client fetches. When the server failed, the client fetches too.
 - `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `MutationResult<T>` and never suspends.
 
 Both accept `initialData`, `shouldRevalidate` and `hydrate`, with the same meaning as in [`store.get`](#storegetargs-options).

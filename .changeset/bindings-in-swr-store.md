@@ -50,4 +50,9 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - Polling now runs all the time when none of the chosen `refreshWhen*` states can be detected.
 - Default keys now tag names and ids differently, and the serializer handles `Date`, `NaN`, `Infinity`, objects without a prototype, and object keys that start with `$`.
 - The React hook now suspends with `use` on React 19, and throws the promise on React 18.
+- Solid hydration with `initialData` but no `hydrate` no longer writes the placeholder to the cache, and a resource that failed on the server now fetches on the client.
+- A listener or `compare` that throws no longer stops other listeners or keeps a key from being evicted. The error is reported instead.
+- The React hook now always calls `use` on React 19 in suspense mode, so finishing a suspended transition no longer logs an error.
+- The React, Preact and Solid hooks now use the newest arguments when arguments change but the key does not, and Solid keeps its subscription, polling and event listeners in that case.
+- The default key now throws for functions, symbols and circular values, and escapes tag-like fields of class instances.
 - The package is built with tsdown and targets ES2020. ESM and CommonJS builds are still published, but the separate `development` builds are gone.

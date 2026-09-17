@@ -1,54 +1,100 @@
 import { dequal } from 'dequal/lite';
 import type { SWRStoreExtendedOptions } from './types';
 
-function isPlainObject(value: object): boolean {
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+function compareNames(a: string, b: string): number {
+  if (a === b) {
+    return 0;
+  }
+  return a < b ? -1 : 1;
 }
 
-// Plain objects get their keys sorted, so `{ a, b }` and `{ b, a }` give the
-// same key. Values JSON cannot tell apart or cannot write get a tagged form,
-// such as `{ "$undefined": true }`. Object keys that start with `$` get an
-// extra `$`, so a plain object never looks like a tag.
-function keyReplacer(this: unknown, key: string, value: unknown): unknown {
-  // `toJSON` has already run on `value`, so a `Date` is read from its holder.
-  const raw: unknown = key === '' ? value : Reflect.get(Object(this), key);
-  if (raw instanceof Date) {
-    return { $date: Number.isNaN(raw.getTime()) ? null : raw.toISOString() };
+function tag(name: string, value: string): string {
+  return `{${JSON.stringify(name)}:${value}}`;
+}
+
+// Writes `value` like `JSON.stringify`, with changes that keep different
+// arguments from sharing a key:
+// - Object keys are sorted, so `{ a, b }` and `{ b, a }` give the same key.
+// - Values JSON drops or merges get a tagged form, such as
+//   `{"$undefined":true}`.
+// - Object keys that start with `$` get an extra `$`, so an object never
+//   looks like a tag.
+// - Functions and symbols cannot be told apart, so they throw.
+function encode(value: unknown, key: string, ancestors: Set<object>): string {
+  let current: unknown = value;
+  if (current !== null && typeof current === 'object' && !(current instanceof Date)) {
+    const toJSON: unknown = Reflect.get(current, 'toJSON');
+    if (typeof toJSON === 'function') {
+      current = Reflect.apply(toJSON, current, [key]);
+    }
   }
-  if (value === undefined) {
-    return { $undefined: true };
+
+  if (current === undefined) {
+    return tag('$undefined', 'true');
   }
-  if (typeof value === 'number' && !Number.isFinite(value)) {
-    return { $number: String(value) };
+  if (current === null || typeof current === 'string' || typeof current === 'boolean') {
+    return JSON.stringify(current);
   }
-  if (typeof value === 'bigint') {
-    return { $bigint: value.toString() };
+  if (typeof current === 'number') {
+    return Number.isFinite(current)
+      ? JSON.stringify(current)
+      : tag('$number', JSON.stringify(String(current)));
   }
-  if (value instanceof Map) {
-    return { $map: Array.from(value.entries()) };
+  if (typeof current === 'bigint') {
+    return tag('$bigint', JSON.stringify(current.toString()));
   }
-  if (value instanceof Set) {
-    return { $set: Array.from(value.values()) };
+  if (typeof current === 'function' || typeof current === 'symbol') {
+    throw new TypeError(
+      `A ${typeof current} cannot be part of a default cache key. Pass a custom \`key\` instead.`,
+    );
   }
-  if (value !== null && typeof value === 'object' && isPlainObject(value)) {
-    const entries = Object.entries(value).map(([name, item]): [string, unknown] => [
-      name.startsWith('$') ? `$${name}` : name,
-      item,
-    ]);
-    entries.sort(([a], [b]) => {
-      if (a === b) {
-        return 0;
+  const object: object = current;
+  if (object instanceof Date) {
+    return tag(
+      '$date',
+      Number.isNaN(object.getTime()) ? 'null' : JSON.stringify(object.toISOString()),
+    );
+  }
+  if (ancestors.has(object)) {
+    throw new TypeError('A circular value cannot be part of a default cache key.');
+  }
+  ancestors.add(object);
+  try {
+    if (Array.isArray(object)) {
+      const items: string[] = [];
+      for (let i = 0; i < object.length; i += 1) {
+        items.push(encode(object[i], String(i), ancestors));
       }
-      return a < b ? -1 : 1;
-    });
-    return Object.fromEntries(entries);
+      return `[${items.join(',')}]`;
+    }
+    if (object instanceof Map) {
+      const entries: string[] = [];
+      for (const [entryKey, entryValue] of object) {
+        entries.push(`[${encode(entryKey, '0', ancestors)},${encode(entryValue, '1', ancestors)}]`);
+      }
+      return tag('$map', `[${entries.join(',')}]`);
+    }
+    if (object instanceof Set) {
+      const items: string[] = [];
+      for (const item of object) {
+        items.push(encode(item, String(items.length), ancestors));
+      }
+      return tag('$set', `[${items.join(',')}]`);
+    }
+    const fields = Object.keys(object)
+      .sort(compareNames)
+      .map((name) => {
+        const escaped = name.startsWith('$') ? `$${name}` : name;
+        return `${JSON.stringify(escaped)}:${encode(Reflect.get(object, name), name, ancestors)}`;
+      });
+    return `{${fields.join(',')}}`;
+  } finally {
+    ancestors.delete(object);
   }
-  return value;
 }
 
 export function serializeKey(args: unknown[]): string {
-  return JSON.stringify(args, keyReplacer);
+  return encode(args, '', new Set());
 }
 
 function defaultKey(...args: unknown[]): string {

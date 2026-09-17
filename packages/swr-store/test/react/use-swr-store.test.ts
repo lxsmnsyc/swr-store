@@ -1,7 +1,7 @@
 import type { RenderResult } from '@testing-library/react';
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
-import { Component, StrictMode, Suspense, createElement, useState } from 'react';
+import { Component, StrictMode, Suspense, createElement, startTransition, useState } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { createSWRStore, setCacheSize } from '../../src';
@@ -535,5 +535,74 @@ describe('React suspense recovery', () => {
     expect(calls).toBe(2);
     spy.mockRestore();
     vi.useRealTimers();
+  });
+});
+
+describe('React use and arguments', () => {
+  it('calls use again when a suspended transition finishes', async () => {
+    const key = uniqueKey('react-transition-use');
+    const store = createSWRStore<string>({ key: () => key, get: async () => 'value' });
+    const errors: unknown[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((message) => {
+      errors.push(message);
+    });
+
+    function Data(): string {
+      return useSWRStore(store, [], { suspense: true });
+    }
+
+    let show = (): void => undefined;
+    function App() {
+      const [visible, setVisible] = useState(false);
+      show = () => {
+        startTransition(() => {
+          setVisible(true);
+        });
+      };
+      return createElement(
+        Suspense,
+        { fallback: 'loading' },
+        visible ? createElement(Data) : 'hidden',
+      );
+    }
+
+    const view = await renderSuspending(createElement(App));
+    await act(async () => {
+      show();
+      await Promise.resolve();
+    });
+    await waitInAct(() => {
+      expect(view.container.textContent).toBe('value');
+    });
+
+    expect(errors.filter((message) => String(message).includes('use()'))).toEqual([]);
+    spy.mockRestore();
+  });
+
+  it('revalidates with the newest arguments when the key stays the same', async () => {
+    const key = uniqueKey('react-latest-args');
+    const get = vi.fn(async (token: string) => token);
+    const store = createSWRStore<string, [string]>({
+      key: () => key,
+      get,
+      freshAge: 0,
+      staleAge: 0,
+      revalidateOnFocus: true,
+    });
+
+    const { rerender } = renderHook(({ token }: { token: string }) => useSWRStore(store, [token]), {
+      initialProps: { token: 'first' },
+    });
+    await waitFor(() => {
+      expect(store.get([''], { shouldRevalidate: false }).status).toBe('success');
+    });
+
+    rerender({ token: 'second' });
+    get.mockClear();
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    expect(get).toHaveBeenLastCalledWith('second');
   });
 });
