@@ -1,5 +1,6 @@
 import type { SWRPending, SWRResult } from '../cache/mutation-cache';
 import { subscribe } from '../global';
+import IS_CLIENT from '../is-client';
 import { getServerRead } from '../server-read';
 import type { SWRStore } from '../types';
 
@@ -30,6 +31,28 @@ export interface ExternalStore<T> {
   setArgs: (args: unknown[]) => void;
   // Revalidates the entry once. Call it after the component mounts.
   revalidate: () => void;
+}
+
+// Keys that a hook already hydrated on this page.
+const HYDRATED = new Set<string>();
+
+// Hydrates a key once per page. Server data is only current when the page
+// loads, so a hook that mounts later must not write it again, for example
+// after the entry expired or was removed from the cache.
+export function hydrateOnce<T, P extends any[]>(
+  store: SWRStore<T, P>,
+  args: P,
+  initialData: T | undefined,
+): void {
+  if (!IS_CLIENT) {
+    return;
+  }
+  const key = store.getKey(args);
+  if (HYDRATED.has(key)) {
+    return;
+  }
+  HYDRATED.add(key);
+  store.hydrate(args, initialData);
 }
 
 const WAITERS = new WeakMap<SWRPending<unknown>, Promise<unknown>>();
@@ -144,8 +167,8 @@ export function createExternalStore<T, P extends any[] = []>(
   const read = (revalidate: boolean): SWRResult<T> =>
     store.get(latestArgs, { revalidate, initialData: options.initialData });
 
-  if (options.hydrate && options.initialData !== undefined) {
-    store.hydrate(args, options.initialData);
+  if (options.hydrate) {
+    hydrateOnce(store, args, options.initialData);
   }
   let current = read(false);
 

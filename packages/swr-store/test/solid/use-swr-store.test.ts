@@ -242,6 +242,30 @@ describe('Solid hydration', () => {
   });
 });
 
+describe('Solid initial data', () => {
+  it('does not apply initialData to a later key', async () => {
+    const prefix = uniqueKey('solid-initial-key');
+    const get = vi.fn(async (id: string) => `fetched-${id}`);
+    const store = createSWRStore<string, [string]>({ key: (id) => `${prefix}-${id}`, get });
+
+    await createRoot(async (dispose) => {
+      const [id, setId] = createSignal('1');
+      const result = useSWRStoreSuspenseless(store, (): [string] => [id()], {
+        initialData: 'server-1',
+        hydrate: true,
+      });
+      expect(result()).toEqual({ status: 'success', data: 'server-1' });
+
+      setId('2');
+      await flush();
+
+      expect(get).toHaveBeenCalledWith('2');
+      expect(result()).toEqual({ status: 'success', data: 'fetched-2' });
+      dispose();
+    });
+  });
+});
+
 describe('Solid hydration details', () => {
   function stubServerData(value: () => unknown): void {
     const resources = new Proxy<Record<string, unknown>>(

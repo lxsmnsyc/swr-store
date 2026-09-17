@@ -118,7 +118,7 @@ A cached failure has no stale time. Once it is no longer fresh, a read returns a
 - `staleAge` defaults to `30000` milliseconds.
 - Ages are only checked when the store is read or revalidated. Nothing expires on a timer.
 
-A key has at most one running fetch. Reads that would fetch while one runs return the cached result, or the running fetch's pending result, instead of starting another. Only a revalidating `mutate` or `setResult` replaces a running fetch, and only one that started before its write.
+A key has at most one running fetch. Reads that would fetch while one runs return the cached result, or the running fetch's pending result, instead of starting another. Writes with `mutate`, `setResult` or `hydrate` stop a running fetch, since its result would be dropped. Its promise settles with the written result, and a later read can fetch again right away.
 
 When a fetch settles after a newer write to the same key, its result is dropped. Writes are ordered by when they happened, not by their timestamps, so this also holds within the same millisecond.
 
@@ -183,8 +183,10 @@ To write known current data to the cache, such as data the server rendered with,
 userStore.hydrate(['123'], prefetchedUser);
 ```
 
-- A settled entry is kept, since the cache already has data for the key.
-- A pending entry is replaced. Its fetch is dropped when it settles, so the hydrated value stays.
+- Without `data`, the store `initialData` is written.
+- An existing entry is kept, since the cache already has newer work for the key.
+- The one exception is an entry that is still pending on the key's first load. It is replaced, and its fetch stops.
+- It returns nothing. Call `store.get` to read the result.
 
 You can also write to the cache directly with [`mutate`](#storemutateargs-value-options).
 
@@ -324,9 +326,9 @@ userStore.setResult(['123'], { status: 'failure', data: new Error('Not found') }
 
 - A pending `result` is replaced by its outcome once its promise settles, unless something else was written to the key first.
 
-### `store.hydrate(args, data)`
+### `store.hydrate(args, data?)`
 
-Writes `data` to the cache entry for `args` as a success, unless the entry already holds a settled result. See [Initial data and hydration](#initial-data-and-hydration).
+Writes `data`, or the store `initialData`, to the cache entry for `args` as a success. An existing entry is kept, unless it is still pending on the key's first load. See [Initial data and hydration](#initial-data-and-hydration).
 
 ### `trigger(key)`
 
@@ -335,6 +337,8 @@ The same as `store.trigger`, for a cache key.
 ### `mutate(key, value, options?)`
 
 The same as `store.mutate`, for a cache key. `compare` defaults to deep equality.
+
+TypeScript cannot infer the type from an updater function, so pass it explicitly: `mutate<User>(key, (user) => ...)`.
 
 ### `setResult(key, result, options?)`
 
@@ -412,7 +416,7 @@ For Preact, import from `swr-store/preact` and take `Suspense` from `preact/comp
 | ------------- | -------------------------------------------------------------------------------------------------- | ----------------------- |
 | `suspense`    | When `true`, suspends while pending, throws the error on failure, and returns the data on success. | `false`                 |
 | `initialData` | Returned while there is no cache entry.                                                            | The store `initialData` |
-| `hydrate`     | Writes `initialData` to the cache with `store.hydrate`.                                            | `false`                 |
+| `hydrate`     | Writes `initialData`, or the store `initialData`, to the cache with `store.hydrate`.               | `false`                 |
 | `revalidate`  | When `false`, the hook does not revalidate after mounting.                                         | `true`                  |
 
 - Without `suspense`, the hook returns the `SWRResult<T>`.
@@ -420,9 +424,10 @@ For Preact, import from `swr-store/preact` and take `Suspense` from `preact/comp
 - On React 19, the hook suspends with `use`. React 18 has no `use`, so there the hook throws the promise to wait on, which React 18 also supports. Preact always throws the promise.
 - A suspended component waits for its fetch or for the next write to its cache entry, whichever comes first. A `mutate` ends the suspense even when the fetch is still running.
 - With `suspense`, a cached failure is thrown while it is fresh. After that, rendering fetches again and suspends. Resetting an error boundary therefore retries once the failure is older than `freshAge`.
-- The hook compares cache keys, so passing new `args` objects with the same contents each render does not refetch. When `args` change but the key does not, such as a new token the key leaves out, later fetches and revalidations use the newest `args`. `initialData` and `hydrate` only apply to the first read for a key, so a new `initialData` object each render is fine.
+- The hook compares cache keys, so passing new `args` objects with the same contents each render does not refetch. When `args` change but the key does not, such as a new token the key leaves out, later fetches and revalidations use the newest `args`. `initialData` and `hydrate` only apply to the first key the hook reads, so a new `initialData` object each render is fine. After the key changes, the hook shows the new key's own result.
+- With `hydrate`, the hook hydrates a key once per page. A hook that mounts later, for example after the entry expired, does not write the initial data again.
 - `suspense` can be a `boolean` variable. The return type is then `T | SWRResult<T>`.
-- During hydration, the React hook first renders what the server rendered, which is `initialData` or the pending result. It then updates to the cached result. This keeps the first client render matching the server HTML.
+- During hydration, the React hook first renders what the server rendered, which is `initialData` or the pending result. It then updates to the cached result. This keeps the first client render matching the server HTML. Without `suspense`, a pending result from the server snapshot holds a promise that fetches outside the cache when awaited, so render its `status` instead of awaiting its `data`.
 
 ### Solid
 
@@ -464,6 +469,8 @@ export default function App() {
 }
 ```
 
+- `initialData` and `hydrate` only apply to the first key the hooks read.
+- A hook hydrates a key once per page. A hook that mounts later does not write the initial data again.
 - `useSWRStore(store, args, options?)` returns a `Resource<T | undefined>`. It suspends while pending and holds the error on failure. Like the React hook, a `mutate` ends the suspense even when the fetch is still running.
 - During hydration, `useSWRStore` uses the data from server rendering and writes it to the cache, instead of fetching it again. With `initialData` and no `hydrate`, the initial data stays a placeholder and the client fetches. When the server failed, the client fetches too. The server data also replaces a fetch that another reader of the key, such as `useSWRStoreSuspenseless`, started first.
 - `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `SWRResult<T>` and never suspends.

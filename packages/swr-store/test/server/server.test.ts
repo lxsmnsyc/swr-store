@@ -49,7 +49,11 @@ describe('on the server', () => {
 
     mutate(key, 'mutated');
     store.mutate([], 'mutated');
+    const updater = vi.fn((previous: string | undefined) => `${previous!}!`);
+    store.mutate([], updater);
     trigger(key);
+
+    expect(updater).not.toHaveBeenCalled();
 
     expect(listener).not.toHaveBeenCalled();
     expect(storeListener).not.toHaveBeenCalled();

@@ -358,6 +358,69 @@ describe('React stability', () => {
   });
 });
 
+describe('React initial data', () => {
+  it('does not apply initialData to a later key', () => {
+    const prefix = uniqueKey('react-initial-key');
+    const get = vi.fn(async (id: string) => `fetched-${id}`);
+    const store = createSWRStore<string, [string]>({ key: (id) => `${prefix}-${id}`, get });
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) =>
+        useSWRStore(store, [id], { initialData: 'server-1', hydrate: true }),
+      { initialProps: { id: '1' } },
+    );
+    expect(result.current).toEqual({ status: 'success', data: 'server-1' });
+
+    rerender({ id: '2' });
+
+    expect(result.current.status).toBe('pending');
+    expect(get).toHaveBeenCalledWith('2');
+    expect(store.get(['2'], { revalidate: false }).status).toBe('pending');
+  });
+
+  it('does not hydrate a key again when a later hook mounts', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const key = uniqueKey('react-hydrate-once');
+      const deferred = createDeferred<string>();
+      const store = createSWRStore<string>({
+        key: () => key,
+        get: async () => deferred.promise,
+        freshAge: 1,
+        staleAge: 1,
+      });
+      const options = { initialData: 'server', hydrate: true };
+
+      renderHook(() => useSWRStore(store, [], options)).unmount();
+      vi.setSystemTime(Date.now() + 10);
+      expect(store.get([]).status).toBe('pending');
+
+      renderHook(() => useSWRStore(store, [], options));
+      await act(async () => {
+        deferred.resolve('fresh');
+        await deferred.promise;
+      });
+
+      expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'fresh' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hydrates the store initialData', () => {
+    const key = uniqueKey('react-hydrate-store-initial');
+    const get = vi.fn(async () => 'fetched');
+    const store = createSWRStore<string>({ key: () => key, get, initialData: 'initial' });
+
+    renderHook(() => useSWRStore(store, [], { hydrate: true, revalidate: false }));
+
+    // A store without initialData sees the cache entry, not a placeholder.
+    const reader = createSWRStore<string>({ key: () => key, get });
+    expect(reader.get([], { revalidate: false })).toEqual({ status: 'success', data: 'initial' });
+    expect(get).not.toHaveBeenCalled();
+  });
+});
+
 describe('React StrictMode', () => {
   it('finishes suspense when every result expires right away', async () => {
     const key = uniqueKey('react-strict-zero-age');

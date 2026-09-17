@@ -913,3 +913,119 @@ describe('mutate values', () => {
     expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'value' });
   });
 });
+
+describe('hydrate and running work', () => {
+  it('keeps a pending entry from an expired refetch', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('hydrate-expired');
+    const deferred = createDeferred<string>();
+    let calls = 0;
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => {
+        calls += 1;
+        return calls === 1 ? 'first' : deferred.promise;
+      },
+      freshAge: 1,
+      staleAge: 1,
+    });
+
+    await store.get([]).data;
+    vi.setSystemTime(Date.now() + 10);
+    expect(store.get([]).status).toBe('pending');
+
+    store.hydrate([], 'server');
+    deferred.resolve('fresh');
+    await flush();
+
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'fresh' });
+  });
+
+  it('keeps a pending result written with setResult', () => {
+    const key = uniqueKey('hydrate-set-result');
+    const store = createSWRStore<string>({ key: () => key, get: async () => 'fetched' });
+    const saving = createDeferred<string>();
+
+    store.setResult([], { status: 'pending', data: saving.promise }, { revalidate: false });
+    store.hydrate([], 'server');
+
+    expect(store.get([], { revalidate: false }).status).toBe('pending');
+  });
+
+  it('writes the store initialData when no data is given', () => {
+    const key = uniqueKey('hydrate-store-initial');
+    const get = vi.fn(async () => 'fetched');
+    const store = createSWRStore<string>({ key: () => key, get, initialData: 'initial' });
+
+    store.hydrate([]);
+
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'initial' });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('stops a fetch whose result a write drops, so a later read fetches again', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('write-cancels-fetch');
+    let calls = 0;
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error('down');
+        }
+        return 'fetched';
+      },
+      freshAge: 1,
+      staleAge: 1_000,
+      maxRetryInterval: 60_000,
+    });
+
+    const first = store.get([]);
+    store.mutate([], 'written', { revalidate: false });
+    await expect(first.data).resolves.toBe('written');
+
+    vi.setSystemTime(Date.now() + 10);
+    store.get([]);
+    await flush();
+
+    expect(calls).toBe(2);
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: 'fetched' });
+  });
+});
+
+describe('setResult ordering', () => {
+  it('keeps a write made by a listener over a pending outcome', async () => {
+    const key = uniqueKey('set-result-listener');
+    const deferred = createDeferred<string>();
+    let wrote = false;
+    const unsubscribe = subscribe<string>(key, () => {
+      if (!wrote) {
+        wrote = true;
+        mutate(key, 'listener', { revalidate: false });
+      }
+    });
+
+    setResult(key, { status: 'pending', data: deferred.promise }, { revalidate: false });
+    deferred.resolve('outcome');
+    await flush();
+
+    const latest = createSWRStore<string>({ key: () => key, get: async () => 'fetched' });
+    expect(latest.get([], { revalidate: false })).toEqual({ status: 'success', data: 'listener' });
+    unsubscribe();
+  });
+
+  it('passes the cached data to a global updater', () => {
+    const key = uniqueKey('mutate-global-updater');
+    mutate<{ count: number }>(key, { count: 1 }, { revalidate: false });
+    mutate<{ count: number }>(key, (previous) => ({ count: (previous?.count ?? 0) + 1 }), {
+      revalidate: false,
+    });
+
+    const store = createSWRStore<{ count: number }>({
+      key: () => key,
+      get: async () => ({ count: 0 }),
+    });
+    expect(store.get([], { revalidate: false })).toEqual({ status: 'success', data: { count: 2 } });
+  });
+});

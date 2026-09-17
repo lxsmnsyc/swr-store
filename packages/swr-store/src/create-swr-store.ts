@@ -11,24 +11,20 @@ import {
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
 import type { SWRFullOptions } from './default-config';
 import getDefaultConfig from './default-config';
+import type { Fetch } from './fetches';
+import { cancelFetch, fetches } from './fetches';
 import { mutate, setResult, subscribe, trigger } from './global';
 import IS_CLIENT, { HAS_DOCUMENT, HAS_WINDOW_EVENTS } from './is-client';
 import createLazyPromise from './lazy-promise';
 import reportUserError from './report-error';
-import type { Retry } from './retry';
 import retry from './retry';
 import { setServerRead } from './server-read';
 import type { SWRGetOptions, SWRStore, SWRStoreOptions } from './types';
 
-interface Fetch<T> {
-  retry: Retry<T>;
-  // The pending result for readers that have no cache entry to return.
-  result: SWRPending<T>;
-  startedAt: number;
-}
-
-// The running fetch of each key. A key has at most one.
-const fetches = new Map<string, Fetch<any>>();
+// Pending entries written for a key's first load, before it had any data.
+// Hydration replaces only these. A pending entry from an expired refetch or
+// from `setResult` holds newer work, so hydration keeps it.
+const FIRST_LOADS = new WeakSet<SWREntry<unknown>>();
 
 // Copies the options that are set, so an `undefined` value keeps the default.
 function withDefaults<T extends object>(defaults: T, options?: Partial<T>): T {
@@ -155,7 +151,9 @@ function revalidate<T, P extends any[] = []>(
     // No entry: a placeholder stays out of the cache until the fetch settles.
     returned = placeholder ?? result;
     if (!placeholder) {
-      setMutationDeferred(generatedKey, { result, timestamp: now, isValidating: true });
+      const entry: SWREntry<T> = { result, timestamp: now, isValidating: true };
+      FIRST_LOADS.add(entry);
+      setMutationDeferred(generatedKey, entry);
     }
   }
 
@@ -375,23 +373,25 @@ export default function createSWRStore<T, P extends any[] = []>(
       );
     },
     hydrate: (args, data) => {
+      // `null` is data, so only `undefined` falls back to the store option.
+      // oxlint-disable-next-line typescript/prefer-nullish-coalescing
+      const value = data === undefined ? fullOpts.initialData : data;
       // The server has no cache to write to.
-      if (!IS_CLIENT) {
+      if (!IS_CLIENT || value === undefined) {
         return;
       }
       const generatedKey = fullOpts.key(...args);
-      // A settled result is kept. A pending one is replaced, since the
-      // server's data is ready and the fetch would load it again. The
-      // running fetch is dropped when it settles, because this write is
-      // newer.
+      // An entry is kept, unless it is pending on the key's first load. The
+      // server's data is ready then, so that fetch stops.
       const current = getMutation<T>(generatedKey);
-      if (current && current.result.status !== 'pending') {
+      if (current && !FIRST_LOADS.has(current)) {
         return;
       }
+      cancelFetch(generatedKey, Promise.resolve(value));
       // Hydration can happen while a UI library renders, so subscribers are
       // notified in a microtask.
       setMutationDeferred(generatedKey, {
-        result: { data, status: 'success' },
+        result: { data: value, status: 'success' },
         timestamp: Date.now(),
         isValidating: false,
       });

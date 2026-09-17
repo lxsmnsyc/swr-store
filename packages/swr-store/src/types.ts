@@ -67,8 +67,9 @@ export interface SWRStore<T, P extends any[] = []> {
   /** Writes any result, such as a failure, to the cache entry for `args`. */
   setResult: (args: P, result: SWRResult<T>, options?: SWRMutateOptions<T>) => void;
   /**
-   * Writes data rendered on the server to the cache entry for `args`, unless
-   * the entry already holds a settled result.
+   * Writes data rendered on the server to the cache entry for `args`. Without
+   * `data`, the store `initialData` is written. An existing entry is kept,
+   * unless it is still pending on the key's first load.
    */
-  hydrate: (args: P, data: T) => void;
+  hydrate: (args: P, data?: T) => void;
 }

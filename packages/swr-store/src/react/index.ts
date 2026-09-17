@@ -32,6 +32,8 @@ export interface UseSWRStoreOptions<T> extends BaseOptions<T> {
 interface Source<T, P extends any[]> {
   store: SWRStore<T, P>;
   key: string;
+  // The key of the hook's first read. Initial data only applies to it.
+  firstKey: string;
   revalidate: boolean | undefined;
   external: ExternalStore<T>;
 }
@@ -59,21 +61,30 @@ export function useSWRStore<T, P extends any[] = []>(
   const { suspense, initialData, revalidate, hydrate } = options;
 
   // The source is rebuilt when the cache key changes, not when `args` or
-  // `initialData` are new objects with the same contents. Initial data only
-  // matters for the first read.
+  // `initialData` are new objects with the same contents.
   const key = store.getKey(args);
-  const createSource = (): Source<T, P> => ({
-    store,
-    key,
-    revalidate,
-    external: createExternalStore(store, args, { initialData, revalidate, hydrate }),
-  });
+  const createSource = (firstKey: string): Source<T, P> => {
+    // Initial data belongs to the first key. Another key would otherwise
+    // show or cache data that is not its own.
+    const isFirstKey = key === firstKey;
+    return {
+      store,
+      key,
+      firstKey,
+      revalidate,
+      external: createExternalStore(store, args, {
+        initialData: isFirstKey ? initialData : undefined,
+        revalidate,
+        hydrate: isFirstKey && hydrate,
+      }),
+    };
+  };
 
-  const [source, setSource] = React.useState(createSource);
+  const [source, setSource] = React.useState(() => createSource(key));
 
   let current = source;
   if (current.store !== store || current.key !== key || current.revalidate !== revalidate) {
-    current = createSource();
+    current = createSource(current.firstKey);
     setSource(current);
   }
 

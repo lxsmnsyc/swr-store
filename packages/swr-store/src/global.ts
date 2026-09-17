@@ -1,5 +1,5 @@
 import { dequal } from 'dequal/lite';
-import type { SWRListener, SWRResult } from './cache/mutation-cache';
+import type { SWREntry, SWRListener, SWRPending, SWRResult } from './cache/mutation-cache';
 import type { SWRMutateOptions, SWRMutateValue } from './types';
 import {
   MUTATION_CACHE,
@@ -8,13 +8,53 @@ import {
   subscribeMutation,
 } from './cache/mutation-cache';
 import { setRevalidation } from './cache/revalidation-cache';
+import { cancelFetch } from './fetches';
+import IS_CLIENT from './is-client';
 
 /**
  * Asks the subscribed stores for `key` to revalidate. Fresh entries are not
  * fetched again.
  */
 export function trigger(key: string): void {
+  if (!IS_CLIENT) {
+    return;
+  }
   setRevalidation(key, false);
+}
+
+// oxlint-disable-next-line typescript/promise-function-async
+function toPromise<T>(result: SWRResult<T>): Promise<T> {
+  if (result.status === 'pending') {
+    return result.data;
+  }
+  if (result.status === 'success') {
+    return Promise.resolve(result.data);
+  }
+  // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+  const rejected = Promise.reject<T>(result.data);
+  rejected.catch(() => undefined);
+  return rejected;
+}
+
+// A written pending result is replaced by its outcome, unless something else
+// was written first. Without this, the entry stays pending when no store
+// fetches the key, and whoever waits on it waits forever. The written entry
+// is compared by identity, so a write made by a listener during the
+// notification also counts as newer.
+function settlePending<T>(key: string, written: SWREntry<T>, result: SWRPending<T>): void {
+  const settle = (outcome: SWRResult<T>): void => {
+    if (getMutation<T>(key) === written) {
+      setMutation(key, { result: outcome, timestamp: Date.now(), isValidating: false });
+    }
+  };
+  result.data.then(
+    (value) => {
+      settle({ data: value, status: 'success' });
+    },
+    (error: unknown) => {
+      settle({ data: error, status: 'failure' });
+    },
+  );
 }
 
 /**
@@ -27,8 +67,16 @@ export function setResult<T>(
   result: SWRResult<T>,
   { revalidate = true, compare = dequal }: SWRMutateOptions<T> = {},
 ): void {
+  // The server has no cache to write to.
+  if (!IS_CLIENT) {
+    return;
+  }
   const current = getMutation<T>(key);
   const timestamp = Date.now();
+
+  // A running fetch started before this write, so its result would be
+  // dropped. It stops now, and its promise settles with the written result.
+  cancelFetch(key, toPromise(result));
 
   if (
     current?.result.status === 'success' &&
@@ -41,31 +89,11 @@ export function setResult<T>(
     // `isValidating` changes.
     setMutation(key, { ...current, timestamp, isValidating: false }, current.isValidating);
   } else {
-    setMutation(key, {
-      result,
-      timestamp,
-      isValidating: false,
-    });
-  }
-
-  // A written pending result is replaced by its outcome, unless something
-  // else was written first. Without this, the entry stays pending when no
-  // store fetches the key, and whoever waits on it waits forever.
-  if (result.status === 'pending') {
-    const written = getMutation<T>(key);
-    const settle = (outcome: SWRResult<T>): void => {
-      if (written && getMutation<T>(key) === written) {
-        setMutation(key, { result: outcome, timestamp: Date.now(), isValidating: false });
-      }
-    };
-    result.data.then(
-      (value) => {
-        settle({ data: value, status: 'success' });
-      },
-      (error: unknown) => {
-        settle({ data: error, status: 'failure' });
-      },
-    );
+    const written: SWREntry<T> = { result, timestamp, isValidating: false };
+    setMutation(key, written);
+    if (result.status === 'pending') {
+      settlePending(key, written, result);
+    }
   }
 
   // Revalidate after the write. A fetch that starts now is newer than the
@@ -86,6 +114,10 @@ export function mutate<T>(
   value: SWRMutateValue<T>,
   options?: SWRMutateOptions<T>,
 ): void {
+  // The server has no cache, so an updater has nothing to read.
+  if (!IS_CLIENT) {
+    return;
+  }
   let data: T;
   if (typeof value === 'function') {
     const current = getMutation<T>(key)?.result;

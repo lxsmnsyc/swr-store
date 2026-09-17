@@ -8,7 +8,7 @@ import {
   untrack,
 } from 'solid-js';
 import type { SWRResult } from '../cache/mutation-cache';
-import { isSameArgs, isSameResult, waitForResult } from '../bindings/external-store';
+import { hydrateOnce, isSameArgs, isSameResult, waitForResult } from '../bindings/external-store';
 import IS_CLIENT from '../is-client';
 import createLazyPromise from '../lazy-promise';
 import type { SWRStore } from '../types';
@@ -19,8 +19,10 @@ export interface UseSWRStoreOptions<T> {
   hydrate?: boolean;
 }
 
-interface SuspenselessState<T> {
+interface SuspenselessState<T, P> {
   result: () => SWRResult<T>;
+  // Initial data for a read with `args`. It only applies to the first key.
+  initialDataFor: (args: P) => T | undefined;
   // Writes data from server rendering to the cache and shows it.
   hydrate: (data: T) => void;
   // Starts a deferred first read, when hydration brought no data.
@@ -44,18 +46,25 @@ function createSuspenseless<T, P extends any[]>(
   args: () => P,
   options: UseSWRStoreOptions<T>,
   deferFirstRead: boolean,
-): SuspenselessState<T> {
+): SuspenselessState<T, P> {
+  // Initial data belongs to the first key. Another key would otherwise show
+  // or cache data that is not its own.
+  const firstKey = untrack(() => store.getKey(args()));
+  const isFirstKey = (currentArgs: P): boolean =>
+    untrack(() => store.getKey(currentArgs)) === firstKey;
+  const initialDataFor = (currentArgs: P): T | undefined =>
+    isFirstKey(currentArgs) ? options.initialData : undefined;
+
   // Store reads run untracked, so signals read by the store's `get` or `key`
   // do not become dependencies of this hook.
   const read = (currentArgs: P, revalidate: boolean | undefined): SWRResult<T> =>
-    untrack(() => store.get(currentArgs, { revalidate, initialData: options.initialData }));
+    untrack(() => store.get(currentArgs, { revalidate, initialData: initialDataFor(currentArgs) }));
 
   // The first read for a key writes hydrated initial data first.
   const readFirst = (currentArgs: P): SWRResult<T> => {
-    if (options.hydrate && options.initialData !== undefined) {
-      const { initialData } = options;
+    if (options.hydrate && isFirstKey(currentArgs)) {
       untrack(() => {
-        store.hydrate(currentArgs, initialData);
+        hydrateOnce(store, currentArgs, options.initialData);
       });
     }
     return read(currentArgs, options.revalidate);
@@ -131,6 +140,7 @@ function createSuspenseless<T, P extends any[]>(
 
   return {
     result,
+    initialDataFor,
     hydrate: (data) => {
       firstReadDeferred = false;
       const currentArgs = untrack(args);
@@ -173,7 +183,11 @@ export function useSWRStore<T, P extends any[] = []>(
   // Settled data is returned as is, so Solid applies it right away. A pending
   // result gives the resource a promise that also settles when the cache
   // entry is written, so a `mutate` ends the suspense.
-  const toResourceValue = (currentArgs: P, result: SWRResult<T>): T | Promise<T> => {
+  const toResourceValue = (
+    currentArgs: P,
+    result: SWRResult<T>,
+    initialDataFor: (args: P) => T | undefined,
+  ): T | Promise<T> => {
     if (result.status === 'success') {
       return result.data;
     }
@@ -186,7 +200,7 @@ export function useSWRStore<T, P extends any[] = []>(
     }
     return waitForResult(store, currentArgs, result, () =>
       untrack(() =>
-        store.get(currentArgs, { revalidate: false, initialData: options.initialData }),
+        store.get(currentArgs, { revalidate: false, initialData: initialDataFor(currentArgs) }),
       ),
     );
   };
@@ -204,6 +218,7 @@ export function useSWRStore<T, P extends any[] = []>(
             revalidate: options.revalidate,
             initialData: options.initialData,
           }),
+          () => options.initialData,
         ),
       resourceOptions,
     );
@@ -218,7 +233,7 @@ export function useSWRStore<T, P extends any[] = []>(
   );
   const [resource] = createResource(
     suspenseless.result,
-    (result): T | Promise<T> => toResourceValue(untrack(args), result),
+    (result): T | Promise<T> => toResourceValue(untrack(args), result, suspenseless.initialDataFor),
     {
       ...resourceOptions,
       // Data the server rendered goes into the cache, so the client does

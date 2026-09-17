@@ -156,28 +156,30 @@ Remove any `trigger` calls that passed `false`.
 
 ```ts
 // Before
-store.get(['123'], { initialData: user, hydrate: true });
+const result = store.get(['123'], { initialData: user, hydrate: true });
 
 // After
 store.hydrate(['123'], user);
+const result = store.get(['123']);
 ```
 
-- `store.hydrate` keeps an entry that already holds a success or a failure.
-- It replaces a pending entry. The running fetch is ignored when it settles.
+- `store.hydrate` returns nothing. Call `store.get` if you used the result.
+- Without `data`, it writes the store `initialData`.
+- It keeps an existing entry, unless the entry is still pending on the key's first load. Then it replaces the entry and stops the fetch.
 - It does nothing on the server.
 
-The hooks still accept `hydrate: true` together with `initialData`, and now call `store.hydrate` for you.
+The Solid hooks still accept `hydrate: true`, and the React and Preact hooks now accept it too. They call `store.hydrate` with `initialData`, or with the store `initialData`, once per key per page.
 
 ## Renamed and removed types
 
-| 0.10               | 1.0           |
-| ------------------ | ------------- |
-| `MutationResult`   | `SWRResult`   |
-| `MutationPending`  | `SWRPending`  |
-| `MutationSuccess`  | `SWRSuccess`  |
-| `MutationFailure`  | `SWRFailure`  |
-| `Mutation`         | `SWREntry`    |
-| `MutationListener` | `SWRListener` |
+| 0.10              | 1.0          |
+| ----------------- | ------------ |
+| `MutationResult`  | `SWRResult`  |
+| `MutationPending` | `SWRPending` |
+| `MutationSuccess` | `SWRSuccess` |
+| `MutationFailure` | `SWRFailure` |
+
+`SWREntry` and `SWRListener` are new exports. They describe the cache entry a subscriber receives.
 
 These types are no longer exported. Use `SWRStore` and `SWRStoreOptions` instead.
 
@@ -194,13 +196,14 @@ The new `SWRMutateOptions` and `SWRMutateValue` types describe the `mutate` argu
 
 - `suspense` can be left out, and can be a `boolean` variable. The return type is then `T | SWRResult<T>`.
 - The hook compares cache keys, not argument arrays. Passing a new `args` array with the same key each render no longer resubscribes.
-- `initialData` only applies to the first read for a key. Changing it later does nothing.
+- `initialData` only applies to the first key the hook reads. Changing it later does nothing, and a new key does not show it.
 - With `suspense: true` and no `initialData`, the hook throws an error on the server instead of suspending. The nearest `Suspense` boundary then renders on the client. Pass `initialData` if the content must render on the server.
 - On React 19, the hook suspends with `use`. On React 18 and in Preact, it throws the promise.
 
 ### Solid
 
 - `options` can be left out.
+- `initialData` only applies to the first key the hooks read. Before, a new key also showed it.
 - The hooks keep their subscription when the arguments change but the key does not.
 - Store reads no longer track signals, so signals read inside `get` or `key` do not rerun the hooks.
 - `useSWRStore` writes data from server rendering to the cache during hydration, instead of fetching it again.
@@ -215,7 +218,7 @@ In 0.10 the cache was shared by every request in the server process, so one requ
 
 - `get` returns `initialData` when it is set, and does not fetch.
 - Without `initialData`, every `get` returns a new pending result. Its fetch starts when something awaits `data`.
-- `hydrate`, `mutate`, `setResult`, `trigger` and `subscribe` do nothing.
+- `hydrate`, `mutate`, `setResult`, `trigger` and `subscribe` do nothing. An updater passed to `mutate` is not called.
 - A failed fetch is only retried when `maxRetryCount` is set.
 
 Load data before rendering and pass it as `initialData`. On the client, pass the same data to `store.hydrate`, or to a hook with `hydrate: true`.
@@ -241,6 +244,7 @@ setCacheSize(5000);
 ### Fetching and writes
 
 - A key has at most one running fetch. Reads share it instead of starting another.
+- `mutate`, `setResult` and `hydrate` stop a running fetch whose result they would make useless. Its promise settles with the written result.
 - Freshness counts from when a fetch settles, not from when it started.
 - A fetch result is dropped when the key was written after the fetch started, even within the same millisecond.
 - `mutate` writes first and then revalidates. With `revalidate` (the default), it fetches even when the entry is fresh, and the fetched data replaces the written data. Pass `{ revalidate: false }` to keep the written data.

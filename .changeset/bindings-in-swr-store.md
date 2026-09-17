@@ -14,9 +14,11 @@ See the [migration guide](https://github.com/lxsmnsyc/swr-store/blob/main/packag
 - `store.mutate(args, value, options?)` and the global `mutate(key, value, options?)` now take the data, or a function that receives the cached data and returns the new data. Use the new `setResult` to write a pending or failed result.
 - `mutate` and `setResult` take their options as an object: `{ revalidate, compare }`. `revalidate` defaults to `true`.
 - `trigger` no longer takes a `shouldRevalidate` argument.
-- The `hydrate` option of `get` is replaced by `store.hydrate(args, data)`. It writes the data unless the entry already holds a settled result. A pending entry is replaced, and its fetch is dropped. The hooks still accept `hydrate`.
+- The `hydrate` option of `get` is replaced by `store.hydrate(args, data?)`. It writes the data, or the store `initialData`, unless the key already has an entry. An entry still pending on the key's first load is replaced, and its fetch stops. The hooks still accept `hydrate`, and hydrate each key once per page.
+- `initialData` in the hooks only applies to the first key they read.
+- `mutate`, `setResult` and `hydrate` stop a running fetch whose result they would make useless, so a failing fetch no longer blocks new fetches for the key.
 - The `shouldRevalidate` option of `get` and the hooks is renamed to `revalidate`.
-- The result and entry types are renamed. `MutationResult`, `MutationPending`, `MutationSuccess` and `MutationFailure` are now `SWRResult`, `SWRPending`, `SWRSuccess` and `SWRFailure`. `Mutation` is now `SWREntry`, and `MutationListener` is now `SWRListener`.
+- The result and entry types are renamed. `MutationResult`, `MutationPending`, `MutationSuccess` and `MutationFailure` are now `SWRResult`, `SWRPending`, `SWRSuccess` and `SWRFailure`.
 - `store.id` is removed. The `SWRTrigger`, `SWRMutate`, `SWRGet`, `SWRSubscribe`, `SWRStoreBaseOptions`, `SWRStoreExtendedOptions`, `SWRStorePartialOptions` and `SWRFullOptions` types are no longer exported. Use `SWRStore` and `SWRStoreOptions` instead.
 - `key` is now required. Build it from what makes the data unique, such as an id. The default key, which serialized the arguments, is gone. Use the new `store.getKey(args)` to get a key for the global `trigger`, `mutate` and `subscribe`.
 - `initialData` that is not hydrated no longer stops the first fetch. Before, a store with `initialData` never fetched on its own.
