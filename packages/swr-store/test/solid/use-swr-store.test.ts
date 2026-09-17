@@ -277,6 +277,33 @@ describe('Solid hydration details', () => {
     vi.unstubAllGlobals();
   });
 
+  it('uses server data when another reader already started a fetch', async () => {
+    const key = uniqueKey('solid-hydrate-beside-suspenseless');
+    const deferred = createDeferred<string>();
+    const get = vi.fn(async () => deferred.promise);
+    const store = createSWRStore<string>({ key: () => key, get });
+    stubServerData(() => 'server');
+
+    const container = document.createElement('div');
+    let resource!: Resource<string | undefined>;
+    const dispose = hydrate(() => {
+      useSWRStoreSuspenseless(store, (): [] => []);
+      resource = useSWRStore(store, (): [] => []);
+      return '';
+    }, container);
+    await flush();
+    deferred.resolve('client');
+    await flush();
+
+    expect(resource()).toBe('server');
+    expect(store.get([], { shouldRevalidate: false })).toEqual({
+      status: 'success',
+      data: 'server',
+    });
+    dispose();
+    vi.unstubAllGlobals();
+  });
+
   it('fetches on the client when the server failed', async () => {
     const key = uniqueKey('solid-hydrate-failed');
     const get = vi.fn(async () => 'client');

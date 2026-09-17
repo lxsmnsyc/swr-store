@@ -297,7 +297,7 @@ describe('React stability', () => {
 
   it('does not loop when an argument is a new object every render', () => {
     const store = createSWRStore<string, [{ id: string }]>({
-      name: uniqueKey('react-object-args'),
+      key: ({ id }) => `react-object-args-${id}`,
       get: async ({ id }) => id,
     });
 

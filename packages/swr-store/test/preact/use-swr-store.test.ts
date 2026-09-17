@@ -158,7 +158,7 @@ describe('Preact stability', () => {
 
   it('does not loop when an argument is a new object every render', () => {
     const store = createSWRStore<string, [{ id: string }]>({
-      name: uniqueKey('preact-object-args'),
+      key: ({ id }) => `preact-object-args-${id}`,
       get: async ({ id }) => id,
     });
 

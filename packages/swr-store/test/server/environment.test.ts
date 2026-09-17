@@ -12,7 +12,7 @@ async function loadStore() {
   const { createSWRStore } = await import('../../src');
   const get = vi.fn(async () => 'value');
   const store = createSWRStore<string>({
-    name: 'environment',
+    key: () => 'environment',
     get,
     revalidateOnFocus: true,
     revalidateOnVisibility: true,
@@ -49,11 +49,22 @@ describe('environment detection', () => {
 
   it('does not cache in Deno, even with a window', async () => {
     vi.stubGlobal('window', {});
-    vi.stubGlobal('Deno', {});
+    vi.stubGlobal('Deno', { version: { deno: '2.0.0' } });
     const { get, store } = await loadStore();
 
     await store.get([]).data;
     expect(store.get([]).status).toBe('pending');
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches on a page with an element whose id is Deno', async () => {
+    // Browsers expose elements with an id as globals.
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Deno', {});
+    const { get, store } = await loadStore();
+
+    await store.get([]).data;
+    expect(store.get([]).status).toBe('success');
     expect(get).toHaveBeenCalledTimes(1);
   });
   it('polls all the time when a chosen polling state cannot be detected', async () => {
@@ -64,7 +75,7 @@ describe('environment detection', () => {
       const { createSWRStore } = await import('../../src');
       const get = vi.fn(async () => 'value');
       const store = createSWRStore<string>({
-        name: 'polling-fallback',
+        key: () => 'polling-fallback',
         get,
         freshAge: 0,
         staleAge: 0,

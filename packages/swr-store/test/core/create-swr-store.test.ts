@@ -22,20 +22,6 @@ describe('createSWRStore', () => {
     expect(store.get(['a'])).toEqual({ status: 'success', data: 'data-a' });
   });
 
-  it('keeps the default keys of different stores apart', async () => {
-    const users = createSWRStore<string, [string]>({
-      get: async (id) => `user ${id}`,
-    });
-    const posts = createSWRStore<string, [string]>({
-      get: async (id) => `post ${id}`,
-    });
-
-    await users.get(['1']).data;
-
-    expect(users.getKey(['1'])).not.toBe(posts.getKey(['1']));
-    expect(posts.get(['1']).status).toBe('pending');
-  });
-
   it('shares the cache between stores with the same custom key', async () => {
     const key = uniqueKey('shared');
     const get = vi.fn(async () => 'value');
@@ -122,6 +108,34 @@ describe('createSWRStore', () => {
       data: 'value',
     });
     expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores fetched data and stops validating when compare throws', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('compare-throws');
+    const reportError = vi.fn();
+    vi.stubGlobal('reportError', reportError);
+    let count = 0;
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => {
+        count += 1;
+        return `v${count}`;
+      },
+      freshAge: 0,
+      compare: () => {
+        throw new Error('compare failed');
+      },
+    });
+
+    await store.get([]).data;
+    vi.setSystemTime(Date.now() + 10);
+    store.get([]);
+    await flush();
+
+    expect(store.get([], { shouldRevalidate: false })).toEqual({ status: 'success', data: 'v2' });
+    expect(reportError).toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it('keeps the old result when the new data is deeply equal', async () => {
@@ -537,20 +551,6 @@ describe('notifications', () => {
   });
 });
 
-describe('options', () => {
-  it('starts the default key with the store name', async () => {
-    const name = uniqueKey('named');
-    const get = vi.fn(async (id: string) => id);
-    const first = createSWRStore<string, [string]>({ name, get });
-    const second = createSWRStore<string, [string]>({ name, get });
-
-    expect(first.getKey(['a'])).toBe(`name:${name}:["a"]`);
-    await first.get(['a']).data;
-    expect(second.get(['a'])).toEqual({ status: 'success', data: 'a' });
-    expect(get).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('fetch ordering', () => {
   it('shares a failing background fetch instead of starting another', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -650,25 +650,6 @@ describe('fetch ordering', () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
     unsubscribe();
-  });
-});
-
-describe('default key', () => {
-  it('tells apart values that JSON writes the same way', () => {
-    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
-
-    expect(store.getKey([undefined])).not.toBe(store.getKey([null]));
-    expect(store.getKey([new Map([['a', 1]])])).not.toBe(store.getKey([new Map([['b', 2]])]));
-    expect(store.getKey([new Set([1])])).not.toBe(store.getKey([new Set([2])]));
-    expect(store.getKey([1n])).not.toBe(store.getKey(['1']));
-  });
-
-  it('ignores the order of object keys', () => {
-    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
-
-    expect(store.getKey([{ a: 1, b: { c: 2, d: 3 } }])).toBe(
-      store.getKey([{ b: { d: 3, c: 2 }, a: 1 }]),
-    );
   });
 });
 
@@ -824,45 +805,6 @@ describe('retry timing', () => {
   });
 });
 
-describe('default key details', () => {
-  it('keeps names and ids apart', () => {
-    const unnamed = createSWRStore<string>({ get: async () => 'value' });
-    const named = createSWRStore<string>({ name: unnamed.id, get: async () => 'value' });
-
-    expect(named.getKey([])).not.toBe(unnamed.getKey([]));
-  });
-
-  it('covers values JSON handles poorly', () => {
-    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
-    const nullProto = (entries: [string, number][]): object => {
-      const value: Record<string, number> = Object.fromEntries(entries);
-      Object.setPrototypeOf(value, null);
-      return value;
-    };
-
-    expect(
-      store.getKey([
-        nullProto([
-          ['a', 1],
-          ['b', 2],
-        ]),
-      ]),
-    ).toBe(
-      store.getKey([
-        nullProto([
-          ['b', 2],
-          ['a', 1],
-        ]),
-      ]),
-    );
-    expect(store.getKey([Number.NaN])).not.toBe(store.getKey([null]));
-    expect(store.getKey([Number.POSITIVE_INFINITY])).not.toBe(store.getKey([null]));
-    const date = new Date(0);
-    expect(store.getKey([date])).not.toBe(store.getKey([date.toISOString()]));
-    expect(store.getKey([undefined])).not.toBe(store.getKey([{ $undefined: true }]));
-  });
-});
-
 describe('user code errors', () => {
   it('keeps notifying and unpins the key when a listener throws', async () => {
     const reported: unknown[] = [];
@@ -903,31 +845,33 @@ describe('user code errors', () => {
   });
 });
 
-describe('default key limits', () => {
-  it('throws for functions, symbols and circular values', () => {
-    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
-    const circular: Record<string, unknown> = {};
-    circular.self = circular;
+describe('mutate with a pending result', () => {
+  it('writes the outcome when no store fetches the key', async () => {
+    const key = uniqueKey('mutate-pending');
+    const deferred = createDeferred<string>();
+    const listener = vi.fn<(mutation: Mutation<string>) => void>();
+    const unsubscribe = subscribe(key, listener);
 
-    expect(() => store.getKey([() => 1])).toThrow(TypeError);
-    expect(() => store.getKey([Symbol('a')])).toThrow(TypeError);
-    expect(() => store.getKey([{ callback: () => 1 }])).toThrow(TypeError);
-    expect(() => store.getKey([circular])).toThrow(TypeError);
+    mutate(key, { status: 'pending', data: deferred.promise }, false);
+    deferred.resolve('value');
+    await flush();
+
+    expect(listener.mock.lastCall?.[0].result).toEqual({ status: 'success', data: 'value' });
+    unsubscribe();
   });
 
-  it('allows the same object in several places', () => {
-    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
-    const shared = { id: 1 };
+  it('keeps a newer write', async () => {
+    const key = uniqueKey('mutate-pending-newer');
+    const deferred = createDeferred<string>();
+    const listener = vi.fn<(mutation: Mutation<string>) => void>();
+    const unsubscribe = subscribe(key, listener);
 
-    expect(store.getKey([[shared, shared]])).toBe(store.getKey([[{ id: 1 }, { id: 1 }]]));
-  });
+    mutate(key, { status: 'pending', data: deferred.promise }, false);
+    mutate(key, { status: 'success', data: 'newer' }, false);
+    deferred.resolve('older');
+    await flush();
 
-  it('escapes tag-like fields of class instances', () => {
-    class Tagged {
-      $undefined = true;
-    }
-    const store = createSWRStore<string, [unknown]>({ get: async () => 'value' });
-
-    expect(store.getKey([new Tagged()])).not.toBe(store.getKey([undefined]));
+    expect(listener.mock.lastCall?.[0].result).toEqual({ status: 'success', data: 'newer' });
+    unsubscribe();
   });
 });

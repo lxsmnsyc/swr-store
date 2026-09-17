@@ -73,32 +73,19 @@ Reading a store returns a `MutationResult<T>`. Check `status` to find out what `
 
 ## Keys and the shared cache
 
-In the browser, every store writes to one global cache. The `key` option turns the store arguments into a cache key.
-
-- By default the key is the store `name` followed by the serialized arguments. Without a `name`, the store's id is used instead, and two stores never share an entry through their default keys. Names and ids are tagged differently, so a name never matches an id.
-- The default serialization is JSON with a few changes:
-  - Object keys are sorted, so `{ a, b }` and `{ b, a }` give the same key. This includes objects without a prototype. Class instances are written by their own fields, like plain objects.
-  - `undefined`, `NaN`, `Infinity`, `BigInt`, `Date`, `Map` and `Set` values are written in a tagged form, so they do not collide with `null`, strings or empty objects.
-  - Object keys that start with `$` get an extra `$`, so a plain object never matches a tag.
-  - Functions, symbols and circular values throw a `TypeError`. Pass a custom `key` for arguments like these. The same object can still appear in several places.
-- Stores with a custom `key` share an entry when they produce the same key.
-- The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
-- The cache keeps up to 1000 entries. When it is full, the least recently used entry is removed. Entries with subscribers or a running fetch are kept, and so is the entry used last. Change the limit with [`setCacheSize`](#setcachesizesize).
-
-The store id comes from a counter, so it changes every time the store is created. Create stores once at module level. When a store has to be created inside a function, set `name` so every instance uses the same entries. Avoid creating a store during render: the hooks treat a new store object as a new source and subscribe again on every render.
+In the browser, every store writes to one global cache. Each store needs a `key` function that turns its arguments into a cache key. Build the key from what makes the data unique, such as an id.
 
 ```ts
-function createUserStore() {
-  return createSWRStore<User, [string]>({
-    name: 'user',
-    get: (id) => getUser(id),
-  });
-}
+const userStore = createSWRStore<User, [string]>({
+  key: (id) => `/user/${id}`,
+  get: (id) => getUser(id),
+});
 ```
 
-The server has no cache. See [Server rendering](#server-rendering).
-
-A custom key lets you leave arguments out of the key, such as an auth token.
+- Stores that produce the same key share the same cache entry.
+- The key can leave out arguments that do not change the data, such as an auth token.
+- The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
+- The cache keeps up to 1000 entries. When it is full, the least recently used entry is removed. Entries with subscribers or a running fetch are kept, and so is the entry used last. Change the limit with [`setCacheSize`](#setcachesizesize).
 
 ```ts
 const privateData = createSWRStore<Data, [string, string]>({
@@ -108,6 +95,10 @@ const privateData = createSWRStore<Data, [string, string]>({
 
 privateData.get([userId, token]);
 ```
+
+Create stores once at module level. The hooks treat a new store object as a new source, so creating a store during render subscribes again on every render.
+
+The server has no cache. See [Server rendering](#server-rendering).
 
 ## Cache age
 
@@ -245,26 +236,25 @@ Before writing a fetched value, the store compares it with the cached value. Whe
 
 ### `createSWRStore(options)`
 
-Creates a store. Only `get` is required.
+Creates a store. `get` and `key` are required.
 
-| Option                   | Type                         | Default                                 |
-| ------------------------ | ---------------------------- | --------------------------------------- |
-| `get`                    | `(...args: P) => Promise<T>` | Required                                |
-| `name`                   | `string`                     | `undefined`                             |
-| `key`                    | `(...args: P) => string`     | Name or id, then `JSON.stringify(args)` |
-| `initialData`            | `T`                          | `undefined`                             |
-| `freshAge`               | `number`                     | `2000`                                  |
-| `staleAge`               | `number`                     | `30000`                                 |
-| `compare`                | `(a: T, b: T) => boolean`    | Deep equality                           |
-| `maxRetryCount`          | `number`                     | Unlimited                               |
-| `maxRetryInterval`       | `number`                     | `5000`                                  |
-| `revalidateOnFocus`      | `boolean`                    | `false`                                 |
-| `revalidateOnVisibility` | `boolean`                    | `false`                                 |
-| `revalidateOnNetwork`    | `boolean`                    | `false`                                 |
-| `refreshInterval`        | `number`                     | `undefined`                             |
-| `refreshWhenHidden`      | `boolean`                    | `false`                                 |
-| `refreshWhenBlurred`     | `boolean`                    | `false`                                 |
-| `refreshWhenOffline`     | `boolean`                    | `false`                                 |
+| Option                   | Type                         | Default       |
+| ------------------------ | ---------------------------- | ------------- |
+| `get`                    | `(...args: P) => Promise<T>` | Required      |
+| `key`                    | `(...args: P) => string`     | Required      |
+| `initialData`            | `T`                          | `undefined`   |
+| `freshAge`               | `number`                     | `2000`        |
+| `staleAge`               | `number`                     | `30000`       |
+| `compare`                | `(a: T, b: T) => boolean`    | Deep equality |
+| `maxRetryCount`          | `number`                     | Unlimited     |
+| `maxRetryInterval`       | `number`                     | `5000`        |
+| `revalidateOnFocus`      | `boolean`                    | `false`       |
+| `revalidateOnVisibility` | `boolean`                    | `false`       |
+| `revalidateOnNetwork`    | `boolean`                    | `false`       |
+| `refreshInterval`        | `number`                     | `undefined`   |
+| `refreshWhenHidden`      | `boolean`                    | `false`       |
+| `refreshWhenBlurred`     | `boolean`                    | `false`       |
+| `refreshWhenOffline`     | `boolean`                    | `false`       |
 
 Options set to `undefined` keep their default.
 
@@ -320,6 +310,7 @@ userStore.mutate(['123'], {
 - `compare` defaults to the store `compare` option.
 - With `shouldRevalidate: true`, subscribed stores fetch again after the write, even when the entry is fresh. The fetched data then replaces the written data. Pass `false` to keep the written data.
 - When several stores share the key, only one fetch starts.
+- A pending `result` is replaced by its outcome once its promise settles, unless something else was written to the key first.
 
 ### `trigger(key, shouldRevalidate = true)`
 
@@ -455,7 +446,7 @@ export default function App() {
 ```
 
 - `useSWRStore(store, args, options?)` returns a `Resource<T | undefined>`. It suspends while pending and holds the error on failure. Like the React hook, a `mutate` ends the suspense even when the fetch is still running.
-- During hydration, `useSWRStore` uses the data from server rendering and writes it to the cache, instead of fetching it again. With `initialData` and no `hydrate`, the initial data stays a placeholder and the client fetches. When the server failed, the client fetches too.
+- During hydration, `useSWRStore` uses the data from server rendering and writes it to the cache, instead of fetching it again. With `initialData` and no `hydrate`, the initial data stays a placeholder and the client fetches. When the server failed, the client fetches too. The server data also replaces a fetch that another reader of the key, such as `useSWRStoreSuspenseless`, started first.
 - `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `MutationResult<T>` and never suspends.
 
 Both accept `initialData`, `shouldRevalidate` and `hydrate`, with the same meaning as in [`store.get`](#storegetargs-options).

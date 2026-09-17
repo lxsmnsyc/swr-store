@@ -30,18 +30,17 @@ export type SWRSubscribe<T, P extends any[] = []> = (
 export interface SWRStoreBaseOptions<T, P extends any[] = []> {
   get: (...args: P) => Promise<T>;
   /**
-   * Starts the default cache key. Set it when the store is not created once
-   * at module level, so every instance of the store shares the same entries.
+   * Returns the cache key for the arguments. Build it from what makes the
+   * data unique, such as an id. Stores that return the same key share the
+   * same cache entry.
    */
-  name?: string;
+  key: (...args: P) => string;
   initialData?: T;
   refreshInterval?: number;
   maxRetryCount?: number;
 }
 
-export interface SWRStoreExtendedOptions<T, P extends any[] = []> {
-  key: (...args: P) => string;
-
+export interface SWRStoreExtendedOptions<T> {
   revalidateOnFocus: boolean;
   revalidateOnVisibility: boolean;
   revalidateOnNetwork: boolean;
@@ -58,15 +57,13 @@ export interface SWRStoreExtendedOptions<T, P extends any[] = []> {
   maxRetryInterval: number;
 }
 
-export type SWRStorePartialOptions<T, P extends any[] = []> = Partial<
-  SWRStoreExtendedOptions<T, P>
->;
+export type SWRStorePartialOptions<T> = Partial<SWRStoreExtendedOptions<T>>;
 
 export interface SWRStoreOptions<T, P extends any[] = []>
-  extends SWRStorePartialOptions<T, P>, SWRStoreBaseOptions<T, P> {}
+  extends SWRStorePartialOptions<T>, SWRStoreBaseOptions<T, P> {}
 
 export interface SWRFullOptions<T, P extends any[] = []>
-  extends SWRStoreExtendedOptions<T, P>, SWRStoreBaseOptions<T, P> {}
+  extends SWRStoreExtendedOptions<T>, SWRStoreBaseOptions<T, P> {}
 
 export interface SWRStore<T, P extends any[] = []> {
   id: string;

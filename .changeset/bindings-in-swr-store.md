@@ -9,6 +9,7 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - The React binding supports React 18 and 19, and the Preact binding needs Preact 10.11 or later. Both use `useSyncExternalStore` and no longer need `SWRStoreRoot`. The component is still exported but only renders its children.
 - The `suspense` option of the React and Preact `useSWRStore` can be left out.
 - The Solid hooks now read the new result when their arguments change, and `options` can be left out.
+- `key` is now required. Build it from what makes the data unique, such as an id. The default key, which serialized the arguments, is gone. Use the new `store.getKey(args)` to get a key for the global `trigger`, `mutate` and `subscribe`.
 - `initialData` that is not hydrated no longer stops the first fetch. Before, a store with `initialData` never fetched on its own.
 - Store and `get` options set to `undefined` now keep their defaults. Before, passing `initialData: undefined` to `get` ignored the store's `initialData`.
 - Falsy `initialData`, such as `0` or `''`, is no longer ignored.
@@ -17,7 +18,6 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - With `suspense: true` and no `initialData`, the React and Preact `useSWRStore` throw an error on the server instead of suspending, so the `Suspense` boundary renders on the client.
 - The client cache now keeps up to 1000 entries and removes the least recently used ones that have no subscribers. Use the new `setCacheSize` to change the limit.
 - A failed fetch no longer throws a `window is not defined` error when retrying on the server.
-- The default key now starts with the store's id, so two stores called with the same arguments no longer read each other's data. Set the new `name` option to use a stable prefix for stores that are created more than once. Use the new `store.getKey(args)` to get a key for the global `trigger`, `mutate` and `subscribe`.
 - Event listeners and polling are now set up and removed per store. Before, stores that shared a key could leave listeners running after every subscriber left, or never set them up when a global subscriber came first.
 - `isValidating` now goes back to `false` when a refetch returns equal data. Subscribers are notified when it changes.
 - A fetch that is replaced by a newer one now settles with the newer fetch's result. Before, its promise never settled, which could leave a suspended component waiting forever.
@@ -37,7 +37,6 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - The React and Preact hooks accept `hydrate`, and `suspense` can be a `boolean` variable.
 - Solid's `useSWRStore` no longer shows the `Suspense` fallback again when the cache changes to settled data.
 - Several polling states now share one interval, and a `refreshInterval` of `0` or less does not poll.
-- The default key now sorts object keys and tells apart `undefined`, `null`, `BigInt`, `Map` and `Set` values.
 - A listener is no longer called twice for the same entry when a read and a write happen before the next microtask.
 - The cache now keeps entries with a running fetch and the entry written last. A suspended component no longer fetches forever when every other entry has subscribers.
 - A fetch now remembers writes to its key even after the entry was evicted, so it can no longer overwrite a newer `mutate`.
@@ -48,11 +47,9 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - Solid's `useSWRStore` now fetches on the server when `initialData` is passed as `undefined`, and no longer fetches again on the client after hydrating server data. Its store reads no longer track signals.
 - `maxRetryInterval` now caps retry waits below 10 milliseconds.
 - Polling now runs all the time when none of the chosen `refreshWhen*` states can be detected.
-- Default keys now tag names and ids differently, and the serializer handles `Date`, `NaN`, `Infinity`, objects without a prototype, and object keys that start with `$`.
 - The React hook now suspends with `use` on React 19, and throws the promise on React 18.
 - Solid hydration with `initialData` but no `hydrate` no longer writes the placeholder to the cache, and a resource that failed on the server now fetches on the client.
 - A listener or `compare` that throws no longer stops other listeners or keeps a key from being evicted. The error is reported instead.
 - The React hook now always calls `use` on React 19 in suspense mode, so finishing a suspended transition no longer logs an error.
 - The React, Preact and Solid hooks now use the newest arguments when arguments change but the key does not, and Solid keeps its subscription, polling and event listeners in that case.
-- The default key now throws for functions, symbols and circular values, and escapes tag-like fields of class instances.
 - The package is built with tsdown and targets ES2020. ESM and CommonJS builds are still published, but the separate `development` builds are gone.

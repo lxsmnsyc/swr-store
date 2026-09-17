@@ -129,9 +129,19 @@ function createSuspenseless<T, P extends any[]>(
     hydrate: (data) => {
       firstReadDeferred = false;
       const currentArgs = untrack(args);
-      untrack(() =>
-        store.get(currentArgs, { initialData: data, hydrate: true, shouldRevalidate: false }),
-      );
+      untrack(() => {
+        const existing = store.get(currentArgs, {
+          initialData: data,
+          hydrate: true,
+          shouldRevalidate: false,
+        });
+        // Another reader of the key, such as `useSWRStoreSuspenseless`, may
+        // have started a fetch first. The server's data replaces that pending
+        // entry, so it is not fetched again.
+        if (existing.status === 'pending') {
+          store.mutate(currentArgs, { data, status: 'success' }, false);
+        }
+      });
       setResult(() => read(currentArgs, false));
     },
     startRead: () => {

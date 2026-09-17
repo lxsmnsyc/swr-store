@@ -1,6 +1,6 @@
 declare const DedicatedWorkerGlobalScope: unknown;
 declare const SharedWorkerGlobalScope: unknown;
-declare const Deno: unknown;
+declare const Deno: { version?: { deno?: unknown } } | undefined;
 
 // The cache is kept on the client and skipped on the server, where it would be
 // shared by every request.
@@ -10,8 +10,13 @@ declare const Deno: unknown;
 // workers have neither. Edge workers only use the service worker scope, so
 // that one is not checked. Deno also has the worker scopes inside its own
 // workers, and a `window` before Deno 2, which still run on a server.
+//
+// Deno is checked by its version, because a browser page with an element
+// whose id is "Deno" also has a global named `Deno`.
+const IS_DENO = typeof Deno !== 'undefined' && typeof Deno.version?.deno === 'string';
+
 const IS_CLIENT =
-  typeof Deno === 'undefined' &&
+  !IS_DENO &&
   (typeof window !== 'undefined' ||
     typeof DedicatedWorkerGlobalScope !== 'undefined' ||
     typeof SharedWorkerGlobalScope !== 'undefined');

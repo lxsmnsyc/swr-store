@@ -9,7 +9,7 @@ import {
   unpinKey,
 } from './cache/mutation-cache';
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
-import getDefaultConfig, { serializeKey } from './default-config';
+import getDefaultConfig from './default-config';
 import { mutate, subscribe, trigger } from './global';
 import IS_CLIENT, { HAS_DOCUMENT, HAS_WINDOW_EVENTS } from './is-client';
 import createLazyPromise from './lazy-promise';
@@ -189,7 +189,7 @@ function revalidate<T, P extends any[] = []>(
         setMutation(generatedKey, write(getMutation<T>(generatedKey)));
       }
     } catch (error) {
-      // A throwing `compare` must not keep the key pinned forever.
+      // A throwing listener must not keep the key pinned forever.
       reportUserError(error);
     } finally {
       unpinKey(generatedKey);
@@ -199,9 +199,18 @@ function revalidate<T, P extends any[] = []>(
   pendingData.then(
     (data) => {
       settle((latest) => {
+        let isSame = false;
+        try {
+          isSame =
+            latest?.result.status === 'success' && fullOpts.compare(latest.result.data, data);
+        } catch (error) {
+          // A throwing `compare` counts as different data, so the entry still
+          // gets the fetched data and stops validating.
+          reportUserError(error);
+        }
         // Equal data keeps the cached result object, so subscribers that
         // compare results do not update.
-        if (latest?.result.status === 'success' && fullOpts.compare(latest.result.data, data)) {
+        if (isSame && latest) {
           return { result: latest.result, timestamp: Date.now(), isValidating: false };
         }
         return {
@@ -355,17 +364,9 @@ export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
 ): SWRStore<T, P> {
   const id = `SWRStore-${getIndex()}`;
-  const defaults = getDefaultConfig<T, P>();
-  // The default key starts with the store name, or the store id when there is
-  // no name, so two stores called with the same arguments do not share a
-  // cache entry.
-  // Names and ids get different tags, so a name can never match an id.
-  const prefix = options.name === undefined ? `id:${id}` : `name:${options.name}`;
-  defaults.key = (...args: P): string => `${prefix}:${serializeKey(args)}`;
-
   const fullOpts: SWRFullOptions<T, P> = {
     ...options,
-    ...withDefaults(defaults, options),
+    ...withDefaults(getDefaultConfig<T>(), options),
   };
 
   // Every store counts its own subscribers per key, and starts and stops its

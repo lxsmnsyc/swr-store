@@ -1,9 +1,4 @@
-import type {
-  MutationFailure,
-  MutationPending,
-  MutationResult,
-  MutationSuccess,
-} from '../cache/mutation-cache';
+import type { MutationPending, MutationResult } from '../cache/mutation-cache';
 import { subscribe } from '../global';
 import { getServerRead } from '../server-read';
 import type { SWRStore } from '../types';
@@ -25,8 +20,11 @@ export interface ExternalStore<T> {
   // Revalidates a failure during render, so a component that throws it can
   // recover once the failure is no longer fresh.
   retryFailure: () => MutationResult<T>;
-  // A promise that settles when a pending result can be shown.
-  wait: (pending: MutationPending<T>) => Promise<T>;
+  // A promise that resolves when a pending result can be shown. It never
+  // rejects, and its value is not the data. React can replay a suspended
+  // render with the promise of an earlier attempt, so the data is always
+  // read from the store instead.
+  wait: (pending: MutationPending<T>) => Promise<void>;
   // Uses newer arguments for the same cache key, such as a new token. Call it
   // after each render commits.
   setArgs: (args: unknown[]) => void;
@@ -93,38 +91,15 @@ export function waitForResult<T, P extends any[]>(
   return waiter;
 }
 
-const SETTLED = new WeakMap<object, Promise<unknown>>();
+// A promise that React's `use` reads right away, without suspending. React
+// checks `status` and `value` on the promise, which is how it marks promises
+// it has already seen settle.
+export const SETTLED: Promise<void> = Object.assign(Promise.resolve(), {
+  status: 'fulfilled',
+  value: undefined,
+});
 
-// Returns a promise that React's `use` reads right away, without suspending.
-// React checks `status` and `value` or `reason` on the promise, which is
-// how it marks promises it has already seen settle. The promise is cached
-// per result, so every render passes the same one.
-// oxlint-disable-next-line typescript/promise-function-async
-export function toSettledPromise<T>(result: MutationSuccess<T> | MutationFailure): Promise<T> {
-  const existing = SETTLED.get(result);
-  if (existing) {
-    // Promises are stored by their own result, so the types match.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    return existing as Promise<T>;
-  }
-  let promise: Promise<T>;
-  if (result.status === 'success') {
-    promise = Object.assign(Promise.resolve(result.data), {
-      status: 'fulfilled',
-      value: result.data,
-    });
-  } else {
-    const reason: unknown = result.data;
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
-    promise = Object.assign(Promise.reject<T>(reason), {
-      status: 'rejected',
-      reason,
-    });
-    promise.catch(() => undefined);
-  }
-  SETTLED.set(result, promise);
-  return promise;
-}
+const SUSPENDERS = new WeakMap<MutationPending<unknown>, Promise<void>>();
 
 export function isSameArgs<P extends unknown[]>(prev: P, next: P): boolean {
   if (prev === next) {
@@ -243,7 +218,17 @@ export function createExternalStore<T, P extends any[] = []>(
       return current;
     },
     // oxlint-disable-next-line typescript/promise-function-async
-    wait: (pending): Promise<T> => waitForResult(store, latestArgs, pending, () => read(false)),
+    wait: (pending): Promise<void> => {
+      let suspender = SUSPENDERS.get(pending);
+      if (!suspender) {
+        suspender = waitForResult(store, latestArgs, pending, () => read(false)).then(
+          () => undefined,
+          () => undefined,
+        );
+        SUSPENDERS.set(pending, suspender);
+      }
+      return suspender;
+    },
     revalidate: (): void => {
       // Only once. React runs effects again when suspended content comes
       // back, and in StrictMode on every mount. Revalidating each time would

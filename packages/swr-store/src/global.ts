@@ -50,6 +50,26 @@ export function mutate<T>(
     });
   }
 
+  // A written pending result is replaced by its outcome, unless something
+  // else was written first. Without this, the entry stays pending when no
+  // store fetches the key, and whoever waits on it waits forever.
+  if (data.status === 'pending') {
+    const written = getMutation<T>(key);
+    const settle = (result: MutationResult<T>): void => {
+      if (written && getMutation<T>(key) === written) {
+        setMutation(key, { result, timestamp: Date.now(), isValidating: false });
+      }
+    };
+    data.data.then(
+      (value) => {
+        settle({ data: value, status: 'success' });
+      },
+      (error: unknown) => {
+        settle({ data: error, status: 'failure' });
+      },
+    );
+  }
+
   // Revalidate after the write. A fetch that starts now is newer than the
   // written data, so its result is kept.
   if (shouldRevalidate) {
