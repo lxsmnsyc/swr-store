@@ -13,6 +13,7 @@ export function subscribeRevalidation(key: string, listener: RevalidationListene
   return subscribeReactiveCache(REVALIDATION_CACHE, key, listener);
 }
 
-export function setRevalidation(key: string, value: boolean, notify = true): void {
-  setReactiveCacheValue(REVALIDATION_CACHE, key, value, notify);
+// The value tells listeners whether to fetch even when the cache is fresh.
+export function setRevalidation(key: string, force: boolean, notify = true): void {
+  setReactiveCacheValue(REVALIDATION_CACHE, key, force, notify);
 }

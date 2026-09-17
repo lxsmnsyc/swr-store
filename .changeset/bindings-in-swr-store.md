@@ -16,4 +16,12 @@ The React, Preact and Solid bindings now ship inside `swr-store`.
 - With `suspense: true` and no `initialData`, the React and Preact `useSWRStore` throw an error on the server instead of suspending, so the `Suspense` boundary renders on the client.
 - The browser cache now keeps up to 1000 entries and removes the least recently used ones. Use the new `setCacheSize` to change the limit.
 - A failed fetch no longer throws a `window is not defined` error when retrying on the server.
+- The default key now includes the store's id, so two stores called with the same arguments no longer read each other's data. Use the new `store.getKey(args)` to get a key for the global `trigger`, `mutate` and `subscribe`.
+- Event listeners and polling are now set up and removed per store. Before, stores that shared a key could leave listeners running after every subscriber left, or never set them up when a global subscriber came first.
+- `isValidating` now goes back to `false` when a refetch returns equal data. Subscribers are notified when it changes.
+- A fetch that is replaced by a newer one now settles with the newer fetch's result. Before, its promise never settled, which could leave a suspended component waiting forever.
+- `mutate` now writes before revalidating, and with `shouldRevalidate` it fetches even when the entry is fresh. The fetched data replaces the written data.
+- `trigger` with `shouldRevalidate: false` now does nothing.
+- `refreshWhenHidden`, `refreshWhenBlurred` and `refreshWhenOffline` start polling right away when the page is already in that state.
+- The `Mutation` and `MutationListener` types are now exported.
 - The package is built with tsdown. ESM and CommonJS builds are still published, but the separate `development` builds are gone.

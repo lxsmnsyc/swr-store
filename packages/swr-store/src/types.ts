@@ -65,6 +65,8 @@ export interface SWRFullOptions<T, P extends any[] = []>
 
 export interface SWRStore<T, P extends any[] = []> {
   id: string;
+  /** Returns the cache key for `args`, for use with the global functions. */
+  getKey: (args: P) => string;
   trigger: SWRTrigger<P>;
   mutate: SWRMutate<T, P>;
   get: SWRGet<T, P>;

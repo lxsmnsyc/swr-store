@@ -73,9 +73,9 @@ Reading a store returns a `MutationResult<T>`. Check `status` to find out what `
 
 In the browser, every store writes to one global cache. The `key` option turns the store arguments into a cache key.
 
-- By default the key is `JSON.stringify(args)`.
-- Two stores that produce the same key share the same cache entry.
-- The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments.
+- By default the key is made from the store's id and `JSON.stringify(args)`. Two stores never share an entry through their default keys.
+- Stores with a custom `key` share an entry when they produce the same key.
+- The global `trigger`, `mutate` and `subscribe` functions take a key instead of arguments. Use `store.getKey(args)` to get it.
 - The cache keeps up to 1000 entries. When it is full, the least recently used entry is removed. Change the limit with [`setCacheSize`](#setcachesizesize).
 
 The server has no cache. See [Server rendering](#server-rendering).
@@ -140,7 +140,7 @@ Set `refreshInterval` to a number of milliseconds to revalidate on an interval. 
 - `refreshWhenBlurred` polls only while the window is not focused.
 - `refreshWhenOffline` polls only while the browser is offline.
 
-When one or more of these options is set, polling only happens in those states.
+When one or more of these options is set, polling only happens in those states. Polling starts right away when the page is already in that state.
 
 ## Initial data and hydration
 
@@ -202,7 +202,7 @@ The bindings follow the same rules:
 
 ## Comparing results
 
-Before writing a fetched value, the store compares it with the cached value. When they are equal, the cache is not updated and subscribers are not notified.
+Before writing a fetched value, the store compares it with the cached value. When they are equal, the cached result is kept. Subscribers still get a new entry with `isValidating` set to `false`, but its `result` is the same object as before.
 
 - The default comparison is a deep equality check from `dequal`.
 - Set `compare` to use your own function. It receives the old and new values and returns `true` when they are equal.
@@ -245,6 +245,10 @@ Reads the cache entry for `args` and returns a `MutationResult<T>`. It may start
 
 With `shouldRevalidate: false`, a read still starts a fetch when there is no cache entry and no initial data.
 
+### `store.getKey(args)`
+
+Returns the cache key for `args`. Pass it to the global `trigger`, `mutate` and `subscribe`.
+
 ### `store.subscribe(args, listener)`
 
 Calls `listener` every time the cache entry for `args` is written. Returns a function that unsubscribes.
@@ -274,7 +278,7 @@ userStore.mutate(['123'], {
 
 - When both the cached and new results are successes and `compare` says they are equal, the entry keeps its value. Its timestamp is reset and subscribers are not notified.
 - `compare` defaults to the store `compare` option.
-- With `shouldRevalidate: true`, subscribed stores are asked to revalidate first, as with `trigger`.
+- With `shouldRevalidate: true`, subscribed stores fetch again after the write, even when the entry is fresh. The fetched data then replaces the written data. Pass `false` to keep the written data.
 
 ### `trigger(key, shouldRevalidate = true)`
 
@@ -301,7 +305,7 @@ const unsubscribe = subscribe('/user/123', (mutation) => {
   console.log(mutation.result);
 });
 
-trigger('/user/123');
+trigger(userStore.getKey(['123']));
 ```
 
 ## Bindings

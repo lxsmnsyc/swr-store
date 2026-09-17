@@ -5,13 +5,15 @@ interface RetryOptions {
 
 interface Resolvable<T> {
   promise: Promise<T>;
-  resolve: (value: T) => void;
+  resolve: (value: T | PromiseLike<T>) => void;
   reject: (reason: any) => void;
 }
 
 export interface Retry<T> {
   resolvable: Resolvable<T>;
-  cancel: () => void;
+  // Stops retrying. The promise settles with `replacement`, so anything
+  // waiting on it, such as a suspended component, does not wait forever.
+  cancel: (replacement: Promise<T>) => void;
 }
 
 function createResolvable<T>(): Resolvable<T> {
@@ -62,11 +64,12 @@ export default function retry<T>(supplier: () => Promise<T>, options: RetryOptio
 
   return {
     resolvable,
-    cancel: () => {
+    cancel: (replacement) => {
       if (schedule) {
         clearTimeout(schedule);
       }
       alive = false;
+      resolvable.resolve(replacement);
     },
   };
 }

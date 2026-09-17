@@ -1,5 +1,5 @@
 import type { MutationPending, MutationResult } from './cache/mutation-cache';
-import { getMutation, getMutationListenerSize, setMutation } from './cache/mutation-cache';
+import { getMutation, setMutation } from './cache/mutation-cache';
 import { setRevalidation, subscribeRevalidation } from './cache/revalidation-cache';
 import getDefaultConfig from './default-config';
 import { mutate, subscribe, trigger } from './global';
@@ -31,10 +31,13 @@ function withDefaults<T extends object>(defaults: T, options?: Partial<T>): T {
   return result;
 }
 
+// Reads the cache for `args` and fetches when the cache is missing, stale or
+// expired. With `force`, it fetches even when the cache is fresh.
 function revalidate<T, P extends any[] = []>(
   fullOpts: SWRFullOptions<T, P>,
   args: P,
   opts?: SWRGetOptions<T>,
+  force = false,
 ): MutationResult<T> {
   const { shouldRevalidate, initialData, hydrate } = withDefaults<SWRGetOptions<T>>(
     {
@@ -94,6 +97,8 @@ function revalidate<T, P extends any[] = []>(
     }
   }
 
+  let previousRetry: Retry<T> | undefined;
+
   if (currentMutation) {
     if (!shouldRevalidate) {
       return currentMutation.result;
@@ -103,20 +108,15 @@ function revalidate<T, P extends any[] = []>(
       if (retries.has(generatedKey)) {
         return currentMutation.result;
       }
-    } else if (currentMutation.timestamp + fullOpts.freshAge > timestamp) {
+    } else if (!force && currentMutation.timestamp + fullOpts.freshAge > timestamp) {
       // If mutation is still fresh, return mutation
       return currentMutation.result;
     }
 
-    // We have to assume that if the request is no longer fresh
-    // and the request is still pending, we need to cancel it
-    // specially if it's retrying.
+    // A pending fetch that is no longer fresh gets replaced by a new one.
+    // It is cancelled below, so it stops retrying.
     if (currentMutation.result.status === 'pending') {
-      const previousRetry = retries.get(generatedKey);
-
-      if (previousRetry) {
-        previousRetry.cancel();
-      }
+      previousRetry = retries.get(generatedKey);
     }
   }
 
@@ -131,104 +131,95 @@ function revalidate<T, P extends any[] = []>(
 
   const pendingData = pendingRetry.resolvable.promise;
 
+  // The old promise settles with the new fetch, so whoever still waits on it
+  // gets the new data.
+  previousRetry?.cancel(pendingData);
+
   // Capture result
   const result: MutationPending<T> = {
     data: pendingData,
     status: 'pending',
   };
 
-  // Watch for promise resolutions
-  // to update cache data
   const clearRetry = (): void => {
     if (retries.get(generatedKey) === pendingRetry) {
       retries.delete(generatedKey);
     }
   };
 
+  // Watch for promise resolutions
+  // to update cache data
   pendingData.then(
     (data) => {
       clearRetry();
       const mutation = getMutation<T>(generatedKey);
 
-      const shouldUpdate = (): boolean => {
-        // Case 1: There's no mutation
-        if (mutation == null) {
-          return true;
-        }
-
-        // Case 2: Timestamp expired
-        if (mutation.timestamp > timestamp) {
-          return false;
-        }
-
-        // Case 3: There's a stale data
-        if (mutation.result.status === 'success') {
-          // Deep compare stale data
-          return !fullOpts.compare(mutation.result.data, data);
-        }
-
-        // Always update
-        return true;
-      };
-
-      if (shouldUpdate()) {
-        setMutation(generatedKey, {
-          result: {
-            data,
-            status: 'success',
-          },
-          // A zero timestamp counts as missing.
-          // oxlint-disable-next-line typescript/prefer-nullish-coalescing
-          timestamp: mutation?.timestamp || Date.now(),
-          isValidating: false,
-        });
+      // A newer write or fetch happened while this one ran. Keep it.
+      if (mutation && mutation.timestamp > timestamp) {
+        return;
       }
+
+      // The data did not change, so subscribers only learn that the
+      // revalidation is over.
+      if (mutation?.result.status === 'success' && fullOpts.compare(mutation.result.data, data)) {
+        if (mutation.isValidating) {
+          setMutation(generatedKey, { ...mutation, isValidating: false });
+        }
+        return;
+      }
+
+      setMutation(generatedKey, {
+        result: {
+          data,
+          status: 'success',
+        },
+        // A zero timestamp counts as missing.
+        // oxlint-disable-next-line typescript/prefer-nullish-coalescing
+        timestamp: mutation?.timestamp || Date.now(),
+        isValidating: false,
+      });
     },
     (data: unknown) => {
       clearRetry();
       const mutation = getMutation<T>(generatedKey);
 
-      const shouldUpdate = (): boolean => {
-        // Case 1: There's no mutation
-        if (mutation == null) {
-          return true;
-        }
-
-        // Case 2: Timestamp expired
-        if (mutation.timestamp > timestamp) {
-          return false;
-        }
-
-        // Always update
-        return true;
-      };
-
-      if (shouldUpdate()) {
-        setMutation(generatedKey, {
-          result: {
-            data,
-            status: 'failure',
-          },
-          // A zero timestamp counts as missing.
-          // oxlint-disable-next-line typescript/prefer-nullish-coalescing
-          timestamp: mutation?.timestamp || Date.now(),
-          isValidating: false,
-        });
+      // A newer write or fetch happened while this one ran. Keep it.
+      if (mutation && mutation.timestamp > timestamp) {
+        return;
       }
+
+      setMutation(generatedKey, {
+        result: {
+          data,
+          status: 'failure',
+        },
+        // A zero timestamp counts as missing.
+        // oxlint-disable-next-line typescript/prefer-nullish-coalescing
+        timestamp: mutation?.timestamp || Date.now(),
+        isValidating: false,
+      });
     },
   );
 
+  // A placeholder keeps being returned until the fetch fills the cache.
+  if (currentMutation && isPlaceholder) {
+    return currentMutation.result;
+  }
+
   // If there's an existing mutation
   // and mutation is stale
-  // update timestamp and return
+  // keep its result while the fetch runs
   if (
     currentMutation &&
     currentMutation.timestamp + fullOpts.freshAge + fullOpts.staleAge > timestamp
   ) {
     // Updating this means that the freshness or the staleness
     // of a mutation resets
-    currentMutation.timestamp = timestamp;
-    currentMutation.isValidating = true;
+    setMutation(generatedKey, {
+      result: currentMutation.result,
+      timestamp,
+      isValidating: true,
+    });
     return currentMutation.result;
   }
 
@@ -243,200 +234,141 @@ function revalidate<T, P extends any[] = []>(
 }
 
 type Cleanup = () => void;
-type Cleanups = Cleanup[];
-type Subscribe = () => Cleanup;
 
-// This lazy registration allows manageable
-// global source subscriptions by performing
-// reference-counting.
-function lazyRegister<T, P extends any[] = []>(
-  cleanups: Map<string, Cleanups>,
+// Starts the revalidation sources of a store for one key: the revalidation
+// listener, the event listeners and polling. Returns the cleanups.
+function register<T, P extends any[] = []>(
   generatedKey: string,
   fullOpts: SWRFullOptions<T, P>,
   args: P,
-): void {
-  // If there are listeners, it means
-  // that the store has already made subscriptions
-  if (getMutationListenerSize(generatedKey) > 0) {
-    return;
-  }
+): Cleanup[] {
+  const cleanups: Cleanup[] = [];
 
-  // Create cleanup stack
-  const currentCleanups: Cleanups = [];
-
-  const subscription = (sub: Subscribe): void => {
-    currentCleanups.push(sub());
-  };
-
-  const onRevalidate = (): void => {
-    setRevalidation(generatedKey, true);
-  };
-  subscription(() => {
-    const innerRevalidate = (flag: boolean): void => {
-      revalidate(fullOpts, args, {
-        shouldRevalidate: flag,
-      });
-    };
-    return subscribeRevalidation(generatedKey, innerRevalidate);
-  });
+  cleanups.push(
+    subscribeRevalidation(generatedKey, (force) => {
+      revalidate(fullOpts, args, undefined, force);
+    }),
+  );
 
   // Only register on client-side
-  if (IS_CLIENT) {
-    // Register polling interval
-    if (fullOpts.refreshInterval != null) {
-      if (fullOpts.refreshWhenBlurred) {
-        subscription(() => {
-          let interval: undefined | number;
+  if (!IS_CLIENT) {
+    return cleanups;
+  }
 
-          const enter = (): void => {
-            window.clearInterval(interval);
-            interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
-          };
-          const exit = (): void => {
-            window.clearInterval(interval);
-            interval = undefined;
-          };
+  const onRevalidate = (): void => {
+    setRevalidation(generatedKey, false);
+  };
 
-          window.addEventListener('blur', enter, false);
-          window.addEventListener('focus', exit, false);
+  // Polls while `isActive` returns true. The check runs on every event in
+  // `events` and once at the start, so polling begins right away when the
+  // page is already in that state.
+  const pollWhile = (
+    target: Window | Document,
+    events: string[],
+    isActive: () => boolean,
+  ): void => {
+    let interval: ReturnType<typeof setInterval> | undefined;
 
-          return () => {
-            window.removeEventListener('blur', enter, false);
-            window.removeEventListener('focus', exit, false);
-            window.clearInterval(interval);
-          };
-        });
-      }
-      if (fullOpts.refreshWhenOffline) {
-        subscription(() => {
-          let interval: undefined | number;
+    const update = (): void => {
+      clearInterval(interval);
+      interval = isActive() ? setInterval(onRevalidate, fullOpts.refreshInterval) : undefined;
+    };
 
-          const enter = (): void => {
-            window.clearInterval(interval);
-            interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
-          };
-          const exit = (): void => {
-            window.clearInterval(interval);
-            interval = undefined;
-          };
-
-          window.addEventListener('offline', enter, false);
-          window.addEventListener('online', exit, false);
-
-          return () => {
-            window.removeEventListener('offline', enter, false);
-            window.removeEventListener('online', exit, false);
-            window.clearInterval(interval);
-          };
-        });
-      }
-      if (fullOpts.refreshWhenHidden) {
-        subscription(() => {
-          let interval: undefined | number;
-
-          const onVisibility = (): void => {
-            window.clearInterval(interval);
-            if (document.visibilityState === 'visible') {
-              interval = undefined;
-            } else {
-              interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
-            }
-          };
-
-          document.addEventListener('visibilitychange', onVisibility, false);
-
-          return () => {
-            document.removeEventListener('visibilitychange', onVisibility, false);
-            window.clearInterval(interval);
-          };
-        });
-      }
-      if (
-        !(fullOpts.refreshWhenHidden || fullOpts.refreshWhenBlurred || fullOpts.refreshWhenOffline)
-      ) {
-        subscription(() => {
-          const interval = window.setInterval(onRevalidate, fullOpts.refreshInterval);
-
-          return () => {
-            window.clearInterval(interval);
-          };
-        });
-      }
+    for (const event of events) {
+      target.addEventListener(event, update, false);
     }
+    update();
 
-    // Registers a focus event for revalidation.
-    if (fullOpts.revalidateOnFocus) {
-      subscription(() => {
-        window.addEventListener('focus', onRevalidate, false);
+    cleanups.push(() => {
+      for (const event of events) {
+        target.removeEventListener(event, update, false);
+      }
+      clearInterval(interval);
+    });
+  };
 
-        return () => {
-          window.removeEventListener('focus', onRevalidate, false);
-        };
-      });
+  // Register polling interval
+  if (fullOpts.refreshInterval != null) {
+    if (fullOpts.refreshWhenBlurred) {
+      pollWhile(window, ['blur', 'focus'], () => !document.hasFocus());
     }
-
-    // Registers a online event for revalidation.
-    if (fullOpts.revalidateOnNetwork) {
-      subscription(() => {
-        window.addEventListener('online', onRevalidate, false);
-
-        return () => {
-          window.removeEventListener('online', onRevalidate, false);
-        };
-      });
+    if (fullOpts.refreshWhenOffline) {
+      pollWhile(window, ['offline', 'online'], () => !navigator.onLine);
     }
-
-    // Registers a visibility change event for revalidation.
-    if (fullOpts.revalidateOnVisibility) {
-      subscription(() => {
-        const onVisible = (): void => {
-          if (document.visibilityState === 'visible') {
-            onRevalidate();
-          }
-        };
-
-        window.addEventListener('visibilitychange', onVisible, false);
-
-        return () => {
-          window.removeEventListener('visibilitychange', onVisible, false);
-        };
+    if (fullOpts.refreshWhenHidden) {
+      pollWhile(document, ['visibilitychange'], () => document.visibilityState !== 'visible');
+    }
+    if (
+      !(fullOpts.refreshWhenHidden || fullOpts.refreshWhenBlurred || fullOpts.refreshWhenOffline)
+    ) {
+      const interval = setInterval(onRevalidate, fullOpts.refreshInterval);
+      cleanups.push(() => {
+        clearInterval(interval);
       });
     }
   }
 
-  cleanups.set(generatedKey, currentCleanups);
+  const listen = (target: Window | Document, event: string, listener: () => void): void => {
+    target.addEventListener(event, listener, false);
+    cleanups.push(() => {
+      target.removeEventListener(event, listener, false);
+    });
+  };
+
+  // Registers a focus event for revalidation.
+  if (fullOpts.revalidateOnFocus) {
+    listen(window, 'focus', onRevalidate);
+  }
+
+  // Registers a online event for revalidation.
+  if (fullOpts.revalidateOnNetwork) {
+    listen(window, 'online', onRevalidate);
+  }
+
+  // Registers a visibility change event for revalidation.
+  if (fullOpts.revalidateOnVisibility) {
+    listen(document, 'visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        onRevalidate();
+      }
+    });
+  }
+
+  return cleanups;
 }
 
-function lazyUnregister(cleanups: Map<string, Cleanups>, generatedKey: string): void {
-  if (getMutationListenerSize(generatedKey) === 0) {
-    const actualCleanups = cleanups.get(generatedKey);
-    if (actualCleanups) {
-      for (let i = 0, len = actualCleanups.length; i < len; i += 1) {
-        actualCleanups[i]();
-      }
-      cleanups.delete(generatedKey);
-    }
-  }
+interface Registration {
+  count: number;
+  cleanups: Cleanup[];
 }
 
 export default function createSWRStore<T, P extends any[] = []>(
   options: SWRStoreOptions<T, P>,
 ): SWRStore<T, P> {
+  const id = `SWRStore-${getIndex()}`;
+  const defaults = getDefaultConfig<T, P>();
+  // The default key includes the store id, so two stores called with the
+  // same arguments do not share a cache entry.
+  defaults.key = (...args: P): string => `${id}:${JSON.stringify(args)}`;
+
   const fullOpts: SWRFullOptions<T, P> = {
     ...options,
-    ...withDefaults(getDefaultConfig<T, P>(), options),
+    ...withDefaults(defaults, options),
   };
-  const cleanups = new Map<string, Cleanups>();
+
+  // Every store counts its own subscribers per key, and starts and stops its
+  // own revalidation sources. Other stores or global subscribers on the same
+  // key do not affect it.
+  const registrations = new Map<string, Registration>();
 
   return {
-    id: `SWRStore-${getIndex()}`,
+    id,
+    getKey: (args) => fullOpts.key(...args),
     trigger: (args, shouldRevalidate = true) => {
-      const generatedKey = fullOpts.key(...args);
-      trigger(generatedKey, shouldRevalidate);
+      trigger(fullOpts.key(...args), shouldRevalidate);
     },
     mutate: (args, data, shouldRevalidate = true, compare = fullOpts.compare) => {
-      const generatedKey = fullOpts.key(...args);
-      mutate(generatedKey, data, shouldRevalidate, compare);
+      mutate(fullOpts.key(...args), data, shouldRevalidate, compare);
     },
     // This function revalidates the mutation cache
     // through reactive process
@@ -444,14 +376,32 @@ export default function createSWRStore<T, P extends any[] = []>(
     subscribe: (args, listener) => {
       const generatedKey = fullOpts.key(...args);
 
-      // Setup lazy global registration
-      lazyRegister(cleanups, generatedKey, fullOpts, args);
+      let registration = registrations.get(generatedKey);
+      if (!registration) {
+        registration = {
+          count: 0,
+          cleanups: register(generatedKey, fullOpts, args),
+        };
+        registrations.set(generatedKey, registration);
+      }
+      registration.count += 1;
+      const current = registration;
 
       const unsubscribe = subscribe(generatedKey, listener);
+      let active = true;
       return () => {
+        if (!active) {
+          return;
+        }
+        active = false;
         unsubscribe();
-        // Attempt lazy unregistration
-        lazyUnregister(cleanups, generatedKey);
+        current.count -= 1;
+        if (current.count === 0) {
+          for (const cleanup of current.cleanups) {
+            cleanup();
+          }
+          registrations.delete(generatedKey);
+        }
       };
     },
   };

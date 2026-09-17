@@ -8,34 +8,50 @@ import {
 } from './cache/mutation-cache';
 import { setRevalidation } from './cache/revalidation-cache';
 
+/**
+ * Asks the subscribed stores for `key` to revalidate. Fresh entries are not
+ * fetched again.
+ */
 export function trigger(key: string, shouldRevalidate = true): void {
-  setRevalidation(key, shouldRevalidate);
+  if (shouldRevalidate) {
+    setRevalidation(key, false);
+  }
 }
 
+/**
+ * Writes `data` to the cache entry for `key` and notifies subscribers. With
+ * `shouldRevalidate`, the subscribed stores then fetch again, even when the
+ * entry is fresh, so the fetched data replaces the written one.
+ */
 export function mutate<T>(
   key: string,
   data: MutationResult<T>,
   shouldRevalidate = true,
   compare: (a: T, b: T) => boolean = dequal,
 ): void {
-  setRevalidation(key, shouldRevalidate);
-
   const current = getMutation<T>(key);
+  const timestamp = Date.now();
 
   if (
     current?.result.status === 'success' &&
     data.status === 'success' &&
     compare(current.result.data, data.data)
   ) {
-    current.timestamp = Date.now();
-    return;
+    // Same data, so only the age resets and subscribers are not notified.
+    setMutation(key, { ...current, timestamp }, false);
+  } else {
+    setMutation(key, {
+      result: data,
+      timestamp,
+      isValidating: false,
+    });
   }
 
-  setMutation(key, {
-    result: data,
-    timestamp: Date.now(),
-    isValidating: false,
-  });
+  // Revalidate after the write. A fetch that starts now is newer than the
+  // written data, so its result is kept.
+  if (shouldRevalidate) {
+    setRevalidation(key, true);
+  }
 }
 
 export function subscribe<T>(key: string, listener: MutationListener<T>): () => void {

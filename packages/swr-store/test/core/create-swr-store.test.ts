@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Mutation } from '../../src';
 import { createSWRStore, mutate, setCacheSize, subscribe, trigger } from '../../src';
 import { createDeferred, flush, uniqueKey } from '../utils';
 
@@ -21,16 +22,29 @@ describe('createSWRStore', () => {
     expect(store.get(['a'])).toEqual({ status: 'success', data: 'data-a' });
   });
 
-  it('derives the cache key from the arguments by default', async () => {
-    const get = vi.fn(async (id: number) => id * 2);
-    const store = createSWRStore<number, [number]>({ get });
-    const other = createSWRStore<number, [number]>({ get });
+  it('keeps the default keys of different stores apart', async () => {
+    const users = createSWRStore<string, [string]>({
+      get: async (id) => `user ${id}`,
+    });
+    const posts = createSWRStore<string, [string]>({
+      get: async (id) => `post ${id}`,
+    });
 
-    const id = Date.now();
-    await store.get([id]).data;
+    await users.get(['1']).data;
 
-    // A second store with the same arguments reads the shared cache.
-    expect(other.get([id])).toEqual({ status: 'success', data: id * 2 });
+    expect(users.getKey(['1'])).not.toBe(posts.getKey(['1']));
+    expect(posts.get(['1']).status).toBe('pending');
+  });
+
+  it('shares the cache between stores with the same custom key', async () => {
+    const key = uniqueKey('shared');
+    const get = vi.fn(async () => 'value');
+    const store = createSWRStore<string>({ key: () => key, get });
+    const other = createSWRStore<string>({ key: () => key, get });
+
+    await store.get([]).data;
+
+    expect(other.get([])).toEqual({ status: 'success', data: 'value' });
     expect(get).toHaveBeenCalledTimes(1);
   });
 
@@ -122,14 +136,18 @@ describe('createSWRStore', () => {
     await store.get([]).data;
     const settled = store.get([], { shouldRevalidate: false });
 
-    const listener = vi.fn();
+    const listener = vi.fn<(mutation: Mutation<{ id: number }>) => void>();
     const unsubscribe = store.subscribe([], listener);
 
     vi.setSystemTime(Date.now() + 10);
     store.get([]);
     await flush();
 
-    expect(listener).not.toHaveBeenCalled();
+    // Subscribers only see the revalidation start and end, with the same result.
+    expect(listener.mock.calls.map(([mutation]) => mutation.isValidating)).toEqual([true, false]);
+    for (const [mutation] of listener.mock.calls) {
+      expect(mutation.result).toBe(settled);
+    }
     expect(store.get([], { shouldRevalidate: false })).toBe(settled);
     unsubscribe();
   });
@@ -385,5 +403,77 @@ describe('setCacheSize', () => {
     } finally {
       setCacheSize(1000);
     }
+  });
+});
+
+describe('regressions', () => {
+  it('settles a cancelled fetch with the fetch that replaced it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('cancel');
+    let fail = true;
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => {
+        if (fail) {
+          throw new Error('not yet');
+        }
+        return 'value';
+      },
+      freshAge: 0,
+      staleAge: 0,
+      maxRetryInterval: 60_000,
+    });
+
+    const first = store.get([]);
+    await flush();
+
+    fail = false;
+    vi.setSystemTime(Date.now() + 10);
+    store.get([]);
+
+    await expect(first.data).resolves.toBe('value');
+  });
+
+  it('keeps the fetch that mutate starts, even in the same millisecond', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const key = uniqueKey('mutate-race');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get: async () => 'server',
+    });
+
+    const unsubscribe = store.subscribe([], vi.fn());
+    await store.get([]).data;
+
+    store.mutate([], { status: 'success', data: 'optimistic' });
+    expect(store.get([], { shouldRevalidate: false })).toEqual({
+      status: 'success',
+      data: 'optimistic',
+    });
+
+    await flush();
+    expect(store.get([], { shouldRevalidate: false })).toEqual({
+      status: 'success',
+      data: 'server',
+    });
+    unsubscribe();
+  });
+
+  it('does nothing when trigger is called with shouldRevalidate false', async () => {
+    const key = uniqueKey('trigger-false');
+    const get = vi.fn(async () => 'value');
+    const store = createSWRStore<string>({
+      key: () => key,
+      get,
+      freshAge: 0,
+      staleAge: 0,
+    });
+
+    const unsubscribe = store.subscribe([], vi.fn());
+    await store.get([]).data;
+    store.trigger([], false);
+
+    expect(get).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 });

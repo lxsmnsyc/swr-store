@@ -35,8 +35,8 @@ export function subscribeMutation<T>(key: string, listener: MutationListener<T>)
   return subscribeReactiveCache(MUTATION_CACHE, key, listener);
 }
 
-export function setMutation<T>(key: string, value: Mutation<T>): void {
-  setReactiveCacheValue(MUTATION_CACHE, key, value);
+export function setMutation<T>(key: string, value: Mutation<T>, notify = true): void {
+  setReactiveCacheValue(MUTATION_CACHE, key, value, notify);
 }
 
 export function getMutation<T>(key: string): Mutation<T> | undefined {
