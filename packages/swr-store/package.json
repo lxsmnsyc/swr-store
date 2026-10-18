@@ -1,6 +1,6 @@
 {
   "name": "swr-store",
-  "version": "0.10.6",
+  "version": "1.0.0",
   "private": false,
   "description": "SWR stores for data-fetching",
   "keywords": [
