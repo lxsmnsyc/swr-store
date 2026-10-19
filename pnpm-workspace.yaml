@@ -5,3 +5,4 @@ onlyBuiltDependencies:
   - esbuild
   - oxfmt
   - oxlint
+strictPeerDependencies: false
