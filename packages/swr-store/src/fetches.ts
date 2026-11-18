@@ -9,7 +9,7 @@ export interface Fetch<T> {
 }
 
 // The running fetch of each key. A key has at most one.
-export const fetches = new Map<string, Fetch<any>>();
+export const fetches: Map<string, Fetch<any>> = new Map<string, Fetch<any>>();
 
 // Stops the running fetch of `key`, whose result a newer write makes
 // useless. Its promise settles with `replacement`, so whoever waits on it

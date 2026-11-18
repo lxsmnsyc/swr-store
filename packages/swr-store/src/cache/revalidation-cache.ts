@@ -1,11 +1,11 @@
-import type { ReactiveCacheListener } from './reactive-cache';
+import type { ReactiveCache, ReactiveCacheListener } from './reactive-cache';
 import {
   createReactiveCache,
   setReactiveCacheValue,
   subscribeReactiveCache,
 } from './reactive-cache';
 
-export const REVALIDATION_CACHE = createReactiveCache<boolean>();
+export const REVALIDATION_CACHE: ReactiveCache<boolean> = createReactiveCache<boolean>();
 
 export type RevalidationListener = ReactiveCacheListener<boolean>;
 

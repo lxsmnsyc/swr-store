@@ -15,6 +15,12 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
+    // swr-store's workspace copy installs Solid 2.0 for its own tests. This
+    // example runs on Solid 1.x, so its types come from here.
+    "paths": {
+      "solid-js": ["./node_modules/solid-js"],
+      "solid-js/*": ["./node_modules/solid-js/*"]
+    },
     "esModuleInterop": true,
     "target": "ES2020"
   }

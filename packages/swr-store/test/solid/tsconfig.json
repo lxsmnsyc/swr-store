@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.json",
+  // The Solid 1.x binding and its tests. The package installs Solid 1.x as
+  // `solid-js-1`, next to Solid 2.0 as `solid-js`. src/solid/tsconfig.json
+  // extends this file, so editors and type-aware lint pick it for both.
+  "include": ["../../src/solid", ".", "../utils.ts", "../../types"],
+  "exclude": [],
+  "compilerOptions": {
+    "rootDir": "../..",
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "paths": {
+      "solid-js": ["../../node_modules/solid-js-1"],
+      "solid-js/*": ["../../node_modules/solid-js-1/*"]
+    }
+  }
+}

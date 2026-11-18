@@ -7,5 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["preact-example", "react-example", "solid-example"]
+  "ignore": ["preact-example", "react-example", "solid-example", "solid2-example"]
 }
