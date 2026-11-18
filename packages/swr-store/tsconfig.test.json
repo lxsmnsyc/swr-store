@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "include": ["src", "test", "types"],
+  "exclude": ["node_modules", "src/solid", "test/solid"],
   "compilerOptions": {
     "rootDir": ".",
     "declaration": false,
@@ -9,6 +10,8 @@
     // `preact/compat` declares a global `React` namespace that clashes with
     // `@types/react` once both bindings load in one program.
     "skipLibCheck": true,
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
     "types": ["node"]
   }
 }

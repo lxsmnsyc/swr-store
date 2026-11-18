@@ -15,7 +15,7 @@ declare const Deno: { version?: { deno?: unknown } } | undefined;
 // whose id is "Deno" also has a global named `Deno`.
 const IS_DENO = typeof Deno !== 'undefined' && typeof Deno.version?.deno === 'string';
 
-const IS_CLIENT =
+const IS_CLIENT: boolean =
   !IS_DENO &&
   (typeof window !== 'undefined' ||
     typeof DedicatedWorkerGlobalScope !== 'undefined' ||
@@ -25,7 +25,7 @@ export default IS_CLIENT;
 
 // Event listeners and polling need `window` events, and visibility checks
 // need a `document`. React Native and web workers lack some of them.
-export const HAS_WINDOW_EVENTS =
+export const HAS_WINDOW_EVENTS: boolean =
   typeof window !== 'undefined' && typeof window.addEventListener === 'function';
 
-export const HAS_DOCUMENT = typeof document !== 'undefined';
+export const HAS_DOCUMENT: boolean = typeof document !== 'undefined';
