@@ -433,7 +433,7 @@ For Preact, import from `swr-store/preact` and take `Suspense` from `preact/comp
 
 ### Solid 1.x
 
-`swr-store/solid` works with Solid 1.6 or later. `args` is a function, so the hooks follow reactive arguments. When the arguments change but the key does not, the hooks keep their subscription and use the newest arguments. Signals read by the store's `get` or `key` are not tracked.
+`swr-store/solid` works with Solid 1.6 or later, and does not run on Solid 2.0. `args` is a function, so the hooks follow reactive arguments. When the arguments change but the key does not, the hooks keep their subscription and use the newest arguments. Signals read by the store's `get` or `key` are not tracked.
 
 ```tsx
 import { Suspense } from 'solid-js';
