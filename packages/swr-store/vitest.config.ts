@@ -16,6 +16,13 @@ export default defineConfig({
         },
       },
       {
+        test: {
+          name: 'model',
+          environment: 'jsdom',
+          include: ['test/model/**/*.test.ts'],
+        },
+      },
+      {
         // No DOM, so the store behaves as it does during SSR.
         test: {
           name: 'server',
