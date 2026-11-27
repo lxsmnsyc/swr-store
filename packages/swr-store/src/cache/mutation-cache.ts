@@ -1,4 +1,4 @@
-import type { ReactiveCacheListener } from './reactive-cache';
+import type { ReactiveCache, ReactiveCacheListener } from './reactive-cache';
 import {
   createReactiveCache,
   getReactiveCacheListenerSize,
@@ -39,7 +39,10 @@ interface Pin {
 // is outdated when the entry is gone.
 const pins = new Map<string, Pin>();
 
-export const MUTATION_CACHE = createReactiveCache<SWREntry<any>>(undefined, (key) => pins.has(key));
+export const MUTATION_CACHE: ReactiveCache<SWREntry<any>> = createReactiveCache<SWREntry<any>>(
+  undefined,
+  (key) => pins.has(key),
+);
 
 export type SWRListener<T> = ReactiveCacheListener<SWREntry<T>>;
 

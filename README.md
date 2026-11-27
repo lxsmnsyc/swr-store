@@ -16,6 +16,7 @@ See the [package README](https://github.com/lxsmnsyc/swr-store/tree/main/package
 | `swr-store/react`  | `react` 18 or 19        | [examples/react](https://github.com/lxsmnsyc/swr-store/tree/main/examples/react)   |
 | `swr-store/preact` | `preact` 10.11 or later | [examples/preact](https://github.com/lxsmnsyc/swr-store/tree/main/examples/preact) |
 | `swr-store/solid`  | `solid-js` 1.6 or later | [examples/solid](https://github.com/lxsmnsyc/swr-store/tree/main/examples/solid)   |
+| `swr-store/solid2` | `solid-js` 2.0          | [examples/solid2](https://github.com/lxsmnsyc/swr-store/tree/main/examples/solid2) |
 
 The framework peer dependencies are optional. Install only the one you use.
 

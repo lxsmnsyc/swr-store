@@ -1,0 +1,3 @@
+{
+  "extends": "../../test/solid/tsconfig.json"
+}

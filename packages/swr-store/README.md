@@ -20,7 +20,7 @@ npm install swr-store
 pnpm add swr-store
 ```
 
-The `swr-store/react`, `swr-store/preact` and `swr-store/solid` entry points need TypeScript's `moduleResolution` set to `bundler`, `node16` or `nodenext`.
+The `swr-store/react`, `swr-store/preact`, `swr-store/solid` and `swr-store/solid2` entry points need TypeScript's `moduleResolution` set to `bundler`, `node16` or `nodenext`.
 
 ## Quick start
 
@@ -226,6 +226,7 @@ The bindings follow the same rules:
 - The React and Preact `useSWRStore` return `initialData` when it is set. Without it, the non-suspense hook returns the pending result and does not fetch.
 - With `suspense: true` and no `initialData`, the React and Preact hooks throw an error instead of suspending. Suspending would start a new fetch on every retry and never finish. The error makes the nearest `Suspense` boundary render its fallback on the server and retry on the client.
 - The Solid `useSWRStore` fetches once per resource and waits for it during async server rendering.
+- The Solid 2.0 `useSWRStore` fetches once per hook and waits for it under `<Loading>` while the server renders.
 
 ## Comparing results
 
@@ -374,6 +375,7 @@ Each binding is a separate entry point. The framework is an optional peer depend
 | `swr-store/react`  | `react` 18 or 19        | [examples/react](https://github.com/lxsmnsyc/swr-store/tree/main/examples/react)   |
 | `swr-store/preact` | `preact` 10.11 or later | [examples/preact](https://github.com/lxsmnsyc/swr-store/tree/main/examples/preact) |
 | `swr-store/solid`  | `solid-js` 1.6 or later | [examples/solid](https://github.com/lxsmnsyc/swr-store/tree/main/examples/solid)   |
+| `swr-store/solid2` | `solid-js` 2.0          | [examples/solid2](https://github.com/lxsmnsyc/swr-store/tree/main/examples/solid2) |
 
 ### React and Preact
 
@@ -429,9 +431,9 @@ For Preact, import from `swr-store/preact` and take `Suspense` from `preact/comp
 - `suspense` can be a `boolean` variable. The return type is then `T | SWRResult<T>`.
 - During hydration, the React hook first renders what the server rendered, which is `initialData` or the pending result. It then updates to the cached result. This keeps the first client render matching the server HTML. Without `suspense`, a pending result from the server snapshot holds a promise that fetches outside the cache when awaited, so render its `status` instead of awaiting its `data`.
 
-### Solid
+### Solid 1.x
 
-`args` is a function, so the hooks follow reactive arguments. When the arguments change but the key does not, the hooks keep their subscription and use the newest arguments. Signals read by the store's `get` or `key` are not tracked.
+`swr-store/solid` works with Solid 1.6 or later, and does not run on Solid 2.0. `args` is a function, so the hooks follow reactive arguments. When the arguments change but the key does not, the hooks keep their subscription and use the newest arguments. Signals read by the store's `get` or `key` are not tracked.
 
 ```tsx
 import { Suspense } from 'solid-js';
@@ -476,6 +478,37 @@ export default function App() {
 - `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `SWRResult<T>` and never suspends.
 
 Both accept `initialData` and `revalidate`, with the same meaning as in [`store.get`](#storegetargs-options), and `hydrate`, which writes `initialData` with [`store.hydrate`](#storehydrateargs-data).
+
+### Solid 2.0
+
+`swr-store/solid2` works with Solid 2.0. It has the same hooks and options as `swr-store/solid`, and `args` is a function in the same way.
+
+```tsx
+import { Errored, Loading } from 'solid-js';
+import { useSWRStore } from 'swr-store/solid2';
+
+function UserName(props: { id: string }) {
+  const user = useSWRStore(userStore, (): [string] => [props.id]);
+
+  return <span>{user().name}</span>;
+}
+
+export default function App() {
+  return (
+    <Errored fallback={<span>Something went wrong.</span>}>
+      <Loading fallback={<span>Loading...</span>}>
+        <UserName id="123" />
+      </Loading>
+    </Errored>
+  );
+}
+```
+
+- `useSWRStore(store, args, options?)` returns an async accessor of `T`. While no data is cached, reading it waits under the nearest `<Loading>`. A failure goes to the nearest `<Errored>`. A later write of data to the key, such as a `mutate`, replaces the fallback with the data. Data stays on screen while the key revalidates.
+- A `mutate` ends the wait even when the fetch is still running.
+- During hydration, `useSWRStore` uses the data from server rendering and writes it to the cache, instead of fetching it again. With `initialData` and no `hydrate`, the initial data stays a placeholder and the client fetches. When the server failed, the client fetches too.
+- `useSWRStoreSuspenseless(store, args, options?)` returns an accessor for the `SWRResult<T>`. It never waits and never throws.
+- `initialData` and `hydrate` only apply to the first key the hooks read, as in `swr-store/solid`.
 
 ## License
 

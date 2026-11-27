@@ -17,7 +17,7 @@ export interface ReactiveCache<T> {
 }
 
 export function createReactiveCache<T>(
-  maxSize = DEFAULT_CACHE_SIZE,
+  maxSize: number = DEFAULT_CACHE_SIZE,
   isProtected: (key: string) => boolean = () => false,
 ): ReactiveCache<T> {
   const subscribers = new Map<string, Set<ReactiveCacheListener<T>>>();
